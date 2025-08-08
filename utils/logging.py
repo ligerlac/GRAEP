@@ -1,4 +1,7 @@
 import logging
+from typing import Any, Dict, List, Optional, Tuple
+
+from tabulate import tabulate
 
 # ANSI escape codes for colors
 BLUE = "\033[0;34m"

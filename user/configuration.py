@@ -9,6 +9,7 @@ from user.cuts import (
 )
 from user.observables import get_mtt, get_mva_vars
 from user.systematics import jet_pt_resolution, jet_pt_scale
+from user.skim import dataset_manager_config, skimming_config
 
 
 # ==============================================================================
@@ -36,6 +37,7 @@ LIST_OF_VARS = [
 # ==============================================================================
 
 general_config = {
+<<<<<<< HEAD
     "lumi": 16400,
     "weights_branch": "genWeight",
     "max_files": -1,
@@ -53,6 +55,26 @@ general_config = {
     "lumifile": "./corrections/Cert_271036-284044_13TeV_Legacy2016_"\
         "Collisions16_JSON.txt",
     "cache_dir": "/tmp/gradients_analysis/",
+=======
+        "lumi": 16400,
+        "weights_branch": "genWeight",
+        "max_files": -1,
+        "analysis": "diff",
+        "run_skimming": False,
+        "run_histogramming": False,
+        "run_statistics": False,
+        "run_systematics": False,
+        "run_plots_only": False,
+        "run_mva_training": True,
+        "run_metadata_generation": True,
+        "read_from_cache": True,
+        "output_dir": "outputs/traced_zprime_with_jax_nn/",
+        "processor": "uproot",
+        "lumifile": "./corrections/Cert_271036-284044_13TeV_Legacy2016_"\
+            "Collisions16_JSON.txt",
+        "cache_dir": "/tmp/gradients_analysis/",
+        "processes": ["signal"]
+>>>>>>> bfd419e (first go at improving skimming setup to work out of box)
 }
 
 # ==============================================================================
@@ -60,6 +82,7 @@ general_config = {
 # ==============================================================================
 
 preprocess_config = {
+<<<<<<< HEAD
     "branches": {
         "Muon": ["pt", "eta", "phi", "mass", "miniIsoId", "tightId", "charge"],
         "FatJet": ["particleNet_TvsQCD", "pt", "eta", "phi", "mass"],
@@ -74,6 +97,23 @@ preprocess_config = {
         "event": ["genWeight", "luminosityBlock"],
         "Pileup": ["nTrueInt"],
     },
+=======
+        "branches": {
+            "Muon": ["pt", "eta", "phi", "mass", "miniIsoId", "tightId", "charge"],
+            "FatJet": ["particleNet_TvsQCD", "pt", "eta", "phi", "mass"],
+            "Jet": ["btagDeepB", "jetId", "pt", "eta", "phi", "mass"],
+            "PuppiMET": ["pt", "phi"],
+            "HLT": ["TkMu50"],
+            "Pileup": ["nTrueInt"],
+            "event": ["genWeight", "run", "luminosityBlock", "event"],
+        },
+        "ignore_missing": False,  # is this implemented?
+        "mc_branches": {
+            "event": ["genWeight", "luminosityBlock"],
+            "Pileup": ["nTrueInt"],
+        },
+        "skimming": skimming_config,
+>>>>>>> bfd419e (first go at improving skimming setup to work out of box)
 }
 
 # ==============================================================================
@@ -439,4 +479,5 @@ config = {
     "systematics": systematics_config,
     "statistics": statistics_config,
     "plotting": plotting_config,
+    "datasets": dataset_manager_config,
 }

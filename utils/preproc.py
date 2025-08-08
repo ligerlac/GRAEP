@@ -7,6 +7,8 @@ import numpy as np
 from tqdm import tqdm
 import uproot
 
+from utils.skimming import ConfigurableSkimmingManager, create_default_skimming_config
+
 logger = logging.getLogger(__name__)
 
 
@@ -64,6 +66,7 @@ def pre_process_dak(
     configuration,
     step_size=100_000,
     is_mc=True,
+    skimming_manager=None,
 ):
     """
     Preprocess input ROOT file by applying basic filtering and reducing branches.
@@ -74,16 +77,27 @@ def pre_process_dak(
         Path to the input ROOT file.
     tree : str
         Name of the TTree inside the file.
-    output_path : str
+    output_dir : str
         Destination directory for filtered output.
+    configuration : object
+        Configuration object containing branch selection and other settings.
     step_size : int
         Chunk size to load events incrementally.
+    is_mc : bool
+        Whether input files are Monte Carlo.
+    skimming_manager : ConfigurableSkimmingManager, optional
+        Skimming manager for configurable selections. If None, creates default.
 
     Returns
     -------
     int
         Total number of input events before filtering.
     """
+    # Use provided skimming manager or create default
+    if skimming_manager is None:
+        skimming_config = create_default_skimming_config()
+        skimming_manager = ConfigurableSkimmingManager(skimming_config)
+
     with uproot.open(f"{input_path}:{tree}") as f:
         total_events = f.num_entries
 
@@ -93,6 +107,7 @@ def pre_process_dak(
     )
 
     branches = build_branches_to_keep(configuration, mode="dak", is_mc=is_mc)
+    step_size = skimming_manager.get_chunk_size()
     selected = None
 
     for start in range(0, total_events, step_size):
@@ -107,15 +122,11 @@ def pre_process_dak(
             # xrootd_handler= uproot.source.xrootd.MultithreadedXRootDSource,
         ).events()
 
-        mu_sel = (
-            (events.Muon.pt > 55)
-            & (abs(events.Muon.eta) < 2.4)
-            & events.Muon.tightId
-            & (events.Muon.miniIsoId > 1)
-        )
-        muon_count = ak.sum(mu_sel, axis=1)
-        mask = (
-            events.HLT.TkMu50 & (muon_count == 1) & (events.PuppiMET.pt > 50)
+        # Apply configurable selection
+        from analysis.base import Analysis  # Import here to avoid circular imports
+        temp_analysis = Analysis(configuration)  # Create temporary analysis instance
+        mask = skimming_manager.apply_nanoaod_selection(
+            events, temp_analysis._get_function_arguments
         )
 
         filtered = events[mask]
@@ -146,9 +157,11 @@ def pre_process_dak(
             else ak.concatenate([selected, compact])
         )
 
+    output_tree_name = skimming_manager.get_tree_name()
+
     logger.info(f"💾 Writing skimmed output to: {output_dir}")
     uproot.dask_write(
-        selected, destination=output_dir, compute=True, tree_name=tree
+        selected, destination=output_dir, compute=True, tree_name=output_tree_name
     )
     return total_events
 
@@ -163,6 +176,7 @@ def pre_process_uproot(
     configuration,
     step_size=100_000,
     is_mc=True,
+    skimming_manager=None,
 ):
     """
     Process a ROOT file by applying a selection function on chunks of data
@@ -182,13 +196,22 @@ def pre_process_uproot(
         Number of entries to process in each chunk.
     is_mc : bool
         Flag indicating whether the input data is from MC or not.
+    skimming_manager : ConfigurableSkimmingManager, optional
+        Skimming manager for configurable selections. If None, creates default.
+
     Returns
     -------
     bool
         True if the output file was created successfully, False otherwise.
     """
+    # Use provided skimming manager or create default
+    if skimming_manager is None:
+        skimming_config = create_default_skimming_config()
+        skimming_manager = ConfigurableSkimmingManager(skimming_config)
 
-    cut_str = "HLT_TkMu50*(PuppiMET_pt>50)"
+    cut_str = skimming_manager.get_uproot_cut_string()
+    step_size = skimming_manager.get_chunk_size()
+
     branches = build_branches_to_keep(
         configuration, mode="uproot", is_mc=is_mc
     )
@@ -217,6 +240,8 @@ def pre_process_uproot(
     n_chunks = (total_events + step_size - 1) // step_size  # Ceiling division
     pbar = tqdm(iterable, total=n_chunks, desc="Processing events")
 
+    output_tree_name = skimming_manager.get_tree_name()
+
     # Initialize output file and tree
     output = None
     output_tree = None
@@ -237,7 +262,7 @@ def pre_process_uproot(
                     branch_types[branch] = np.dtype(arrays[branch].dtype)
 
             # Create the output tree with proper types
-            output_tree = output.mktree(tree, branch_types)
+            output_tree = output.mktree(output_tree_name, branch_types)
 
         # Make sure we only write available branches that match the output tree
         # This handles the case where some branches might be missing in later chunks

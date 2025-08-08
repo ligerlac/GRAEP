@@ -1,8 +1,13 @@
+import logging
 from collections import defaultdict
-from typing import Any, Mapping, Sequence
+from typing import Any, Dict, List, Mapping, Optional, Sequence, Tuple
 
 import awkward as ak
 
+<<<<<<< HEAD
+=======
+logger = logging.getLogger(__name__)
+>>>>>>> bfd419e (first go at improving skimming setup to work out of box)
 
 def nested_defaultdict_to_dict(nested_structure: Any) -> dict:
     """
@@ -70,3 +75,59 @@ def recursive_to_backend(data_structure: Any, backend: str = "jax") -> Any:
     else:
         # Leave unchanged if not an Awkward structure
         return data_structure
+<<<<<<< HEAD
+=======
+
+
+def get_function_arguments(
+    arg_spec: List[Tuple[str, Optional[str]]],
+    objects: Dict[str, ak.Array],
+    function_name: Optional[str] = "generic_function"
+) -> List[ak.Array]:
+    """
+    Prepare function arguments from object dictionary.
+
+    Parameters
+    ----------
+    arg_spec : List[Tuple[str, Optional[str]]]
+        List of (object, field) specifications
+    objects : Dict[str, ak.Array]
+        Object dictionary
+    function_name : Optional[str]
+        Name of function for error reporting
+
+    Returns
+    -------
+    List[ak.Array]
+        Prepared arguments
+    """
+    def raise_error(field_name: str) -> None:
+        """
+        Raise KeyError if object is missing in objects dictionary.
+
+        Parameters
+        ----------
+        field_name : str
+            Missing field name
+        """
+        logger.error(
+            f"Field '{field_name}' needed for {function_name} "
+            f"is not found in objects dictionary"
+        )
+        raise KeyError(f"Missing field: {field_name}, function: {function_name}")
+
+    args = []
+    for obj_name, field_name in arg_spec:
+        if field_name:
+            try:
+                args.append(objects[obj_name][field_name])
+            except KeyError:
+                raise_error(f"{obj_name}.{field_name}")
+        else:
+            try:
+                args.append(objects[obj_name])
+            except KeyError:
+                raise_error(obj_name)
+
+    return args
+>>>>>>> bfd419e (first go at improving skimming setup to work out of box)

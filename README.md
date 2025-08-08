@@ -72,22 +72,30 @@ pip install --upgrade pip
 pip install -r requirements.txt
 ```
 
-#### Data Pre-processing
+#### Data Skimming
 
-The analysis expects pre-processed data files. If you do not have them, you can generate them by running the pre-processing step. This will download the necessary data from the CERN Open Data Portal and skim it according to the configuration.
+The analysis expects skimmed data files. If you do not have them, you can generate them by running the skimming step. This will download the necessary data from the CERN Open Data Portal and skim it according to the configuration.
 
 ```bash
-# This command overrides the default config to run only the pre-processing step.
-# It may take a while to download and process the data.
-python run.py general.run_preprocessing=True general.run_mva_training=False general.analysis=nondiff general.run_histogramming=False general.run_statistics=False
+# This command runs only the skimming step to produce skimmed files
+python analysis.py general.run_skimming=True general.analysis=skip
+
+# Or run skimming and then analysis in one command
+python analysis.py general.run_skimming=True
 ```
+
+The skimming system provides three modes:
+
+1. **Skim-only mode**: `general.analysis=skip` - Only performs skimming, no analysis
+2. **Skim-and-analyse mode**: `general.run_skimming=True` - Skims data then runs analysis
+3. **Analysis-only mode**: `general.run_skimming=False` - Uses existing skimmed files for analysis
 
 ### 2. Run the Differentiable Analysis
 
-Once the pre-processed data is available, you can run the main analysis with a single command:
+Once the skimmed data is available, you can run the main analysis with a single command:
 
 ```bash
-python run.py
+python analysis.py
 ```
 
 ### 3. What is Happening?
@@ -121,9 +129,18 @@ The default configuration (`user/configuration.py`) is set up to perform a diffe
   - [1. The Configuration File (`user/configuration.py`)](#1-the-configuration-file-userconfigurationpy)
   - [2. Defining Analysis Logic](#2-defining-analysis-logic)
   - [3. Running the Analysis](#3-running-the-analysis)
+- [Config-Driven Skimming Framework](#config-driven-skimming-framework)
+  - [Dataset Configuration](#dataset-configuration)
+  - [Skimming Configuration](#skimming-configuration)
+  - [Selection Functions](#selection-functions)
+  - [Integration with Main Configuration](#integration-with-main-configuration)
+  - [Usage Examples](#usage-examples)
+  - [Advanced Features](#advanced-features)
 - [Configuration Reference](#configuration-reference)
   - [`general` Block](#general-block)
   - [`preprocess` Block](#preprocess-block)
+  - [`datasets` Block](#datasets-block)
+  - [`skimming` Block](#skimming-block)
   - [`jax` Block](#jax-block)
   - [`mva` Block](#mva-block)
   - [`channels` Block](#channels-block)
@@ -303,6 +320,280 @@ The allowed top-level keys for CLI overrides are:
 
 Attempting to override other keys (e.g., `jax.params`) will result in an error. To change these, you must edit the `user/configuration.py` file directly.
 
+## Config-Driven Skimming Framework
+
+The framework provides a configuration-driven approach to data skimming. This section explains how to configure and use the skimming system for your analysis.
+
+### Core Components
+
+The skimming framework has three main parts:
+
+1. **Dataset Configuration**: Define where your data lives and its properties
+2. **Skimming Configuration**: Define how to filter and process your data
+3. **Selection Functions**: Define the physics logic for event selection
+
+---
+
+### Dataset Configuration
+
+Dataset configuration centralizes information about your data samples, including file locations, cross-sections, and metadata.
+
+#### Basic Dataset Setup
+
+Create a dataset configuration in `user/skim.py`:
+
+```python
+# user/skim.py
+datasets_config = [
+    {
+        "name": "signal",
+        "directory": "datasets/signal/",
+        "cross_section": 1.0,  # pb
+        "tree_name": "Events",
+        "weight_branch": "genWeight"
+    },
+    {
+        "name": "ttbar_semilep",
+        "directory": "datasets/ttbar_semilep/",
+        "cross_section": 831.76,  # pb
+        "tree_name": "Events",
+        "weight_branch": "genWeight"
+    },
+    {
+        "name": "wjets",
+        "directory": "datasets/wjets/",
+        "cross_section": 61526.7,  # pb
+        "tree_name": "Events",
+        "weight_branch": "genWeight"
+    },
+    {
+        "name": "data",
+        "directory": "datasets/data/",
+        "cross_section": 1.0,  # Not used for data
+        "tree_name": "Events",
+        "weight_branch": "genWeight"  # Not used for data
+    }
+]
+```
+
+#### Advanced Dataset Configuration
+
+For more complex setups, you can specify additional properties:
+
+```python
+datasets_config = [
+    {
+        "name": "zprime_2000",
+        "directory": "/eos/cms/store/user/myuser/zprime_M2000/",
+        "cross_section": 0.123,
+        "tree_name": "Events",
+        "weight_branch": "genWeight",
+        "metadata": {
+            "mass": 2000,
+            "campaign": "RunIISummer20UL16",
+            "generator": "MadGraph"
+        }
+    },
+    {
+        "name": "ttbar_powheg",
+        "directory": "/eos/cms/store/user/myuser/ttbar_powheg/",
+        "cross_section": 831.76,
+        "tree_name": "Events",
+        "weight_branch": "genWeight",
+        "metadata": {
+            "generator": "Powheg+Pythia8",
+            "tune": "CP5"
+        }
+    }
+]
+```
+
+#### Using Different Storage Systems
+
+The framework supports various file storage patterns:
+
+```python
+# Local files
+{
+    "name": "local_sample",
+    "directory": "/home/user/data/sample/",
+    "cross_section": 100.0
+}
+
+# EOS storage
+{
+    "name": "eos_sample",
+    "directory": "/eos/cms/store/user/username/sample/",
+    "cross_section": 50.0
+}
+
+# XRootD URLs (will be auto-detected)
+{
+    "name": "remote_sample",
+    "directory": "root://cms-xrd-global.cern.ch//store/mc/sample/",
+    "cross_section": 25.0
+}
+```
+
+---
+
+### Skimming Configuration
+
+Skimming configuration defines how events are filtered and processed. The framework supports two modes:
+
+- **NanoAOD Mode**: Uses Python functions with `PackedSelection` (more flexible)
+- **Uproot Mode**: Uses string-based cuts (faster for simple selections)
+
+#### Basic Skimming Setup
+
+```python
+# user/skim.py
+from user.cuts import default_skim_selection
+
+skimming_config = {
+    # NanoAOD mode selection
+    "nanoaod_selection": {
+        "function": default_skim_selection,
+        "use": [("Muon", None), ("Jet", None), ("PuppiMET", None), ("HLT", None)]
+    },
+
+    # Uproot mode selection (alternative/complementary)
+    "uproot_cut_string": "HLT_TkMu50*(PuppiMET_pt>50)*(nMuon>=1)",
+
+    # Output settings
+    "output_pattern": "part{idx}.root",
+    "chunk_size": 100_000,
+    "tree_name": "Events",
+    "weight_branch": "genWeight"
+}
+```
+
+#### Skimming Configuration Options
+
+| Parameter | Type | Description | Example |
+|-----------|------|-------------|---------|
+| `nanoaod_selection` | `dict` | Python function-based selection | See below |
+| `uproot_cut_string` | `str` | String-based cut for uproot | `"pt>50*(eta<2.4)"` |
+| `output_dir` | `str` | Output directory (auto-set if None) | `"skimmed_data/"` |
+| `output_pattern` | `str` | Filename pattern with `{idx}` placeholder | `"skim_{idx}.root"` |
+| `chunk_size` | `int` | Events per processing chunk | `50000` |
+| `tree_name` | `str` | ROOT tree name | `"Events"` |
+| `weight_branch` | `str` | Event weight branch name | `"genWeight"` |
+
+---
+
+### Selection Functions
+
+Selection functions define the physics logic for event filtering. They use the same functor pattern as the main analysis.
+
+#### Basic Selection Function
+
+```python
+# user/cuts.py
+import awkward as ak
+from coffea.analysis_tools import PackedSelection
+
+def default_skim_selection(muons, jets, met, hlt):
+    """
+    Basic skimming selection for Z' → tt analysis.
+
+    Parameters
+    ----------
+    muons : ak.Array
+        Muon collection
+    jets : ak.Array
+        Jet collection
+    met : ak.Array
+        MET collection
+    hlt : ak.Array
+        HLT trigger collection
+
+    Returns
+    -------
+    PackedSelection
+        Selection object with named cuts
+    """
+    selection = PackedSelection()
+
+    # Muon selection: exactly one tight muon
+    mu_sel = (
+        (muons.pt > 55)
+        & (abs(muons.eta) < 2.4)
+        & muons.tightId
+        & (muons.miniIsoId > 1)
+    )
+    muon_count = ak.sum(mu_sel, axis=1)
+    selection.add("single_muon", muon_count == 1)
+
+    # MET selection
+    selection.add("met", met.pt > 50)
+
+    # HLT selection
+    selection.add("trigger", hlt.TkMu50)
+
+    # Jet selection: at least 4 jets
+    jet_sel = (jets.pt > 30) & (abs(jets.eta) < 2.4) & (jets.jetId >= 4)
+    jet_count = ak.sum(jet_sel, axis=1)
+    selection.add("jets", jet_count >= 4)
+
+    return selection
+```
+---
+
+### 4. Integration with Main Configuration
+
+Once you've defined your datasets and skimming configuration, integrate them with your main analysis configuration:
+
+```python
+# user/configuration.py
+from user.skim import datasets_config, skimming_config
+
+# ... other configuration blocks ...
+
+config = {
+    "general": {
+        "lumi": 16400,
+        "analysis": "diff",
+        "run_preprocessing": True,  # Enable skimming
+        "output_dir": "outputs/my_analysis/",
+        # preprocessed_dir will automatically default to output_dir/skimmed/
+    },
+
+    "preprocess": {
+        "branches": {
+            "Muon": ["pt", "eta", "phi", "mass", "miniIsoId", "tightId", "charge"],
+            "Jet": ["btagDeepB", "jetId", "pt", "eta", "phi", "mass"],
+            "PuppiMET": ["pt", "phi"],
+            "HLT": ["TkMu50"],
+            "event": ["genWeight", "run", "luminosityBlock"],
+        },
+        "mc_branches": {
+            "event": ["genWeight"],
+        },
+        "skimming": skimming_config  # Add your skimming config
+    },
+
+    "datasets": datasets_config,  # Add your dataset config
+
+    # ... rest of your configuration ...
+}
+```
+
+---
+
+### 5. Running with Config-Driven Skimming
+
+#### Basic Usage
+
+You can simply use the framework without any changes:
+
+```python
+# This automatically uses your configured datasets and skimming
+python run.py
+```
+
+---
+
 ## Configuration Reference
 
 The analysis is controlled by a central configuration dictionary, typically defined in `user/configuration.py`.
@@ -348,6 +639,40 @@ Settings for the initial data skimming and filtering step.
 | `branches`       | `dict`     | *Required*  | Mapping of collection names to branch lists.        |
 | `ignore_missing` | `bool`     | `False`     | Ignore missing branches if `True`.                  |
 | `mc_branches`    | `dict`     | *Required*  | Additional branches for MC samples.                 |
+| `skimming`       | `dict`     | `None`      | Skimming configuration (see `skimming` block below). |
+
+---
+
+### `datasets` Block
+
+List of dataset configurations defining data sample properties.
+
+| Parameter        | Type       | Default     | Description                                         |
+|------------------|------------|-------------|-----------------------------------------------------|
+| `name`          | `str`      | *Required*  | Unique dataset identifier.                          |
+| `directory`     | `str`      | *Required*  | Path to dataset files.                             |
+| `cross_section` | `float`    | *Required*  | Cross-section in picobarns (pb).                  |
+| `tree_name`     | `str`      | `"Events"`  | ROOT tree name.                                    |
+| `weight_branch` | `str`      | `"genWeight"` | Event weight branch name.                        |
+| `metadata`      | `dict`     | `{}`        | Additional dataset metadata.                       |
+
+---
+
+### `skimming` Block
+
+Configuration for the data skimming step (part of `preprocess` block).
+
+| Parameter            | Type       | Default           | Description                                    |
+|----------------------|------------|-------------------|------------------------------------------------|
+| `nanoaod_selection`  | `dict`     | `None`           | NanoAOD mode selection configuration.         |
+| &nbsp;&nbsp;↳ `function` | `Callable` | *Required*   | Selection function to apply.                   |
+| &nbsp;&nbsp;↳ `use`      | `list[str]` | *Required*  | Input variables for the function.              |
+| `uproot_cut_string`  | `str`      | `None`           | Uproot mode cut string.                       |
+| `output_dir`         | `str`      | `None`           | Output directory (auto-set if None).         |
+| `output_pattern`     | `str`      | `"part{idx}.root"` | Output filename pattern.                    |
+| `chunk_size`         | `int`      | `100000`         | Events per processing chunk.                  |
+| `tree_name`          | `str`      | `"Events"`       | ROOT tree name.                               |
+| `weight_branch`      | `str`      | `"genWeight"`    | Event weight branch name.                     |
 
 ---
 

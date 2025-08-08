@@ -39,6 +39,7 @@ from user.cuts import lumi_mask
 from utils.evm_stats import build_channel_data_scalar, compute_discovery_pvalue, fit_params
 from utils.logging import BLUE, GREEN, RED, RESET, _banner
 from utils.mva import JAXNetwork, TFNetwork
+<<<<<<< HEAD
 from utils.plot import (
     create_cms_histogram,
     plot_mva_feature_distributions,
@@ -47,6 +48,13 @@ from utils.plot import (
     plot_pvalue_vs_parameters,
 )
 from utils.preproc import pre_process_dak, pre_process_uproot
+=======
+from utils.plot import (create_cms_histogram,
+                        plot_mva_feature_distributions,
+                        plot_mva_scores,
+                        plot_parameters_over_iterations,
+                        plot_pvalue_vs_parameters)
+>>>>>>> bfd419e (first go at improving skimming setup to work out of box)
 from utils.tools import nested_defaultdict_to_dict, recursive_to_backend
 
 
@@ -102,17 +110,17 @@ def merge_histograms(
 
 
 def infer_processes_and_systematics(
-    fileset: dict[str, dict[str, Any]],
+    processed_datasets: dict[str, list[tuple[Any, dict[str, Any]]]],
     systematics_config: list[dict[str, Any]],
     corrections_config: list[dict[str, Any]],
 ) -> tuple[list[str], list[str]]:
     """
-    Extract all unique process and systematic names from the config and fileset.
+    Extract all unique process and systematic names from the config and processed datasets.
 
     Parameters
     ----------
-    fileset : dict
-        Dataset structure with 'metadata' dictionaries including process names.
+    processed_datasets : dict
+        Dictionary mapping dataset names to lists of (events, metadata) tuples.
     systematics_config : list
         Configuration entries for systematic variations.
     corrections_config : list
@@ -123,11 +131,12 @@ def infer_processes_and_systematics(
     tuple[list[str], list[str]]
         Sorted list of process names and systematic variation base names.
     """
-    # Pull out all process names from the fileset metadata
+    # Pull out all process names from the processed datasets metadata
     process_names = {
         metadata.get("process")
-        for dataset in fileset.values()
-        if (metadata := dataset.get("metadata")) and metadata.get("process")
+        for events_list in processed_datasets.values()
+        for events, metadata in events_list
+        if metadata.get("process")
     }
 
     # Extract systematic names from both systematics and corrections configs
@@ -696,16 +705,18 @@ class DifferentiableAnalysis(Analysis):
     - Training MVA models using JAX or TensorFlow frameworks.
     """
 
-    def __init__(self, config: dict[str, Any]) -> None:
+    def __init__(self, config: dict[str, Any], processed_datasets: Optional[Dict[str, List[Tuple[Any, Dict[str, Any]]]]] = None) -> None:
         """
-        Initialise the DifferentiableAnalysis with configuration.
+        Initialise the DifferentiableAnalysis with configuration and processed datasets.
 
         Parameters
         ----------
         config : dict
             Analysis configuration dictionary.
+        processed_datasets : Optional[Dict[str, List[Tuple[Any, Dict[str, Any]]]]], optional
+            Pre-processed datasets from skimming, by default None
         """
-        super().__init__(config)
+        super().__init__(config, processed_datasets)
 
         # Histogram storage:
         # histograms[variation][region][observable] = jnp.ndarray
@@ -748,10 +759,6 @@ class DifferentiableAnalysis(Analysis):
         )
         cache.mkdir(parents=True, exist_ok=True)
 
-        # Optional: directory to store preprocessed inputs for later reuse
-        preproc = self.config.general.get("preprocessed_dir")
-        if preproc:
-            Path(preproc).mkdir(parents=True, exist_ok=True)
 
         # Directory for trained MVA models
         mva = self.dirs["output"] / "mva_models"
@@ -770,6 +777,7 @@ class DifferentiableAnalysis(Analysis):
         mva_plots.mkdir(parents=True, exist_ok=True)
 
         # Register the created paths in the analysis directory registry
+<<<<<<< HEAD
         self.dirs.update(
             {
                 "cache": cache,
@@ -780,8 +788,17 @@ class DifferentiableAnalysis(Analysis):
                 "mva_plots": mva_plots,
             }
         )
+=======
+        self.dirs.update({
+            "cache":       cache,
+            "mva_models":  mva,
+            "optimisation_plots": optimisation_plots,
+            "fit_plots": fit_plots,
+            "mva_plots": mva_plots,
+        })
+>>>>>>> bfd419e (first go at improving skimming setup to work out of box)
 
-    def _log_config_summary(self, fileset: dict[str, Any]) -> None:
+    def _log_config_summary(self) -> None:
         """Logs a structured summary of the key analysis configuration options."""
         logger.info(_banner("Differentiable Analysis Configuration Summary"))
 
@@ -789,6 +806,7 @@ class DifferentiableAnalysis(Analysis):
         general_cfg = self.config.general
         general_data = [
             ["Output Directory", general_cfg.output_dir],
+<<<<<<< HEAD
             [
                 "Max Files per Sample",
                 (
@@ -798,6 +816,10 @@ class DifferentiableAnalysis(Analysis):
                 ),
             ],
             ["Run Preprocessing", general_cfg.run_preprocessing],
+=======
+            ["Max Files per Sample", "All" if general_cfg.max_files == -1 else general_cfg.max_files],
+            ["Run Skimming", general_cfg.run_skimming],
+>>>>>>> bfd419e (first go at improving skimming setup to work out of box)
             ["Run MVA Pre-training", general_cfg.run_mva_training],
             ["Run Systematics", general_cfg.run_systematics],
             ["Run Plots Only", general_cfg.run_plots_only],
@@ -824,6 +846,7 @@ class DifferentiableAnalysis(Analysis):
             )
 
         # --- Processes ---
+<<<<<<< HEAD
         processes = sorted(
             list(
                 {
@@ -841,6 +864,18 @@ class DifferentiableAnalysis(Analysis):
             "Processes Included:\n"
             + tabulate(processes_data, headers=["Process"], tablefmt="grid")
         )
+=======
+        if self.processed_datasets:
+            processes = sorted(list({
+                metadata["process"]
+                for events_list in self.processed_datasets.values()
+                for events, metadata in events_list
+            }))
+            if self.config.general.processes:
+                processes = [p for p in processes if p in self.config.general.processes]
+            processes_data = [[p] for p in processes]
+            logger.info("Processes Included:\n" + tabulate(processes_data, headers=["Process"], tablefmt="grid"))
+>>>>>>> bfd419e (first go at improving skimming setup to work out of box)
 
         # --- Systematics ---
         if self.config.general.run_systematics:
@@ -1788,21 +1823,18 @@ class DifferentiableAnalysis(Analysis):
     def _prepare_data(
         self,
         params: dict[str, Any],
-        fileset: dict[str, Any],
         read_from_cache: bool = False,
         run_and_cache: bool = True,
         cache_dir: Optional[str] = "/tmp/gradients_analysis/",
         recreate_fit_params: bool = False,
     ) -> dict[str, dict[str, dict[str, Any]]]:
         """
-        Run full analysis on all datasets in fileset with caching support.
+        Run full analysis on processed datasets with caching support.
 
         Parameters
         ----------
         params : dict
             Analysis parameters.
-        fileset : dict
-            Dictionary mapping dataset names to file and metadata.
         read_from_cache : bool
             Read preprocessed events from cache.
         run_and_cache : bool
@@ -1822,17 +1854,23 @@ class DifferentiableAnalysis(Analysis):
         }
         summary_data = []
 
-        logger.info(_banner("Preparing and Caching Data"))
+        logger.info(_banner("Processing skimmed data"))
 
         # Prepare dictionary to collect MVA training data
         mva_data: dict[str, dict[str, list[Tuple[dict, int]]]] = defaultdict(
             lambda: defaultdict(list)
         )
 
-        # Loop over datasets in the fileset
-        for dataset, content in fileset.items():
-            metadata = content["metadata"]
-            metadata["dataset"] = dataset
+        # Use processed datasets from skimming
+        if not self.processed_datasets:
+            raise ValueError("No processed datasets available for analysis")
+
+        # Loop over processed datasets
+        for dataset, events_list in self.processed_datasets.items():
+            # Get metadata from first event in the list
+            if not events_list:
+                continue
+            _, metadata = events_list[0]
             process_name = metadata["process"]
 
             # Skip datasets not explicitly requested in config
@@ -1844,8 +1882,8 @@ class DifferentiableAnalysis(Analysis):
 
             dataset_stats = defaultdict(int)
 
-            # Loop over ROOT files associated with the dataset
-            for idx, (file_path, tree) in enumerate(content["files"].items()):
+            # Loop over events in the processed dataset
+            for idx, (events, file_metadata) in enumerate(events_list):
                 # Honour file limit if set in configuration
                 if (
                     config.general.max_files != -1
@@ -1856,32 +1894,14 @@ class DifferentiableAnalysis(Analysis):
                     )
                     break
 
-                # Determine output directory for preprocessed files
-                output_dir = (
-                    f"output/{dataset}/file__{idx}/"
-                    if not config.general.preprocessed_dir
-                    else f"{config.general.preprocessed_dir}/{dataset}/file__{idx}/"
-                )
+                # Count skimmed events
+                dataset_stats["Skimmed"] += len(events)
 
-                # Preprocess ROOT files into skimmed format using uproot or dask
-                if config.general.run_preprocessing:
-                    if config.general.preprocessor == "uproot":
-                        pre_process_uproot(
-                            file_path,
-                            tree,
-                            output_dir,
-                            config,
-                            is_mc=(dataset != "data"),
-                        )
-                    elif config.general.preprocessor == "dask":
-                        pre_process_dak(
-                            file_path,
-                            tree,
-                            output_dir + f"/part{idx}.root",
-                            config,
-                            is_mc=(dataset != "data"),
-                        )
+                # Run preprocessing pipeline and store processed results
+                processed_data, stats = self._prepare_data_for_tracing(events, process_name)
+                all_events[f"{dataset}___{process_name}"][f"file__{idx}"][f"events_{idx}"] = (processed_data, file_metadata)
 
+<<<<<<< HEAD
                 # Discover skimmed files and summarise retained events
                 skimmed_files = glob.glob(f"{output_dir}/part*.root")
                 skimmed_files = [f"{f}:{tree}" for f in skimmed_files]
@@ -2063,6 +2083,107 @@ class DifferentiableAnalysis(Analysis):
                                             presel_ch,
                                             process_name,
                                         )
+=======
+                dataset_stats["Baseline (Analysis)"] += stats["baseline_analysis"]
+                dataset_stats["Baseline (MVA)"] += stats["baseline_mva"]
+                for ch, count in stats["channels"].items():
+                    ch_name = f"Channel: {ch}"
+                    dataset_stats[ch_name] += count
+
+                # ------------------------------------------------------
+                # If MVA training is enabled, collect data for MVA models
+                # ------------------------------------------------------
+                # Helper to extract class name and associated process names
+                def parse_class_entry(entry: Union[str, dict[str, list[str]]]) -> tuple[str, list[str]]:
+                    """
+                    Parse MVA class entry to extract class name and associated process names.
+
+                    Parameters
+                    ----------
+                    entry : Union[str, dict[str, list[str]]]
+                        MVA class entry, either a string (process name) or a dictionary
+                        mapping class name to list of process names.
+
+                    Returns
+                    -------
+                    tuple[str, list[str]]
+                        A tuple containing:
+                        - class_name: Name of the MVA class
+                        - process_names: List of process names associated with this class
+
+                    Raises
+                    ------
+                    ValueError
+                        If entry is neither a string nor a dictionary.
+                    """
+                    if isinstance(entry, str):
+                        return entry, [entry]
+                    if isinstance(entry, dict):
+                        return next(iter(entry.items()))
+                    raise ValueError(f"Invalid MVA class type: {type(entry)}. \
+                                     Allowed types are str or dict.")
+
+                # Helper to record MVA data
+                def record_mva_entry(
+                    mva_data: dict[str, dict[str, list[tuple[dict, int]]]],
+                    cfg_name: str,
+                    class_label: str,
+                    presel_ch: dict[str, Any],
+                    process_name: str
+                ) -> None:
+                    """
+                    Record MVA training data for a specific class and process.
+
+                    Parameters
+                    ----------
+                    mva_data : dict[str, dict[str, list[tuple[dict, int]]]]
+                        Nested dictionary storing MVA training data, structured as:
+                        mva_data[config_name][class_name] = [(objects_dict, event_count), ...]
+                    cfg_name : str
+                        Name of the MVA configuration.
+                    class_label : str
+                        Label for the MVA class (e.g., 'signal', 'background').
+                    presel_ch : dict[str, Any]
+                        Preselection channel data containing 'mva_objects' and 'mva_nevents'.
+                    process_name : str
+                        Name of the physics process being recorded.
+
+                    Returns
+                    -------
+                    None
+                        Modifies mva_data in place by appending new training data.
+                    """
+                    nevents = presel_ch["mva_nevents"]
+                    logger.debug(
+                        f"Adding {nevents} events from process '{process_name}' to MVA class '{class_label}'."
+                    )
+                    mva_data[cfg_name][class_label].append(
+                        (presel_ch["mva_objects"], nevents)
+                    )
+
+                # Collect training data for MVA, if enabled
+                if config.mva and config.general.run_mva_training:
+                    nominal = processed_data.get("nominal", {})
+                    presel_ch = nominal.get("__presel")
+                    if presel_ch:
+                        for mva_cfg in config.mva:
+                            seen = set()  # track classes to avoid duplicates
+                            # iterate training and plot classes in order
+                            for entry in chain(mva_cfg.classes, mva_cfg.plot_classes):
+                                class_name, proc_names = parse_class_entry(entry)
+                                # fallback default
+                                if not class_name or not proc_names:
+                                    class_name = process_name
+                                    proc_names = [process_name]
+                                # skip duplicates
+                                if class_name in seen:
+                                    continue
+                                seen.add(class_name)
+                                # record only if this process applies
+                                if process_name in proc_names:
+                                    record_mva_entry(mva_data, mva_cfg.name, class_name, presel_ch, process_name)
+
+>>>>>>> bfd419e (first go at improving skimming setup to work out of box)
 
             row = {"Dataset": dataset, "Process": process_name}
             row.update(dataset_stats)
@@ -2109,6 +2230,7 @@ class DifferentiableAnalysis(Analysis):
             ]
             table_data.append(formatted_row)
 
+<<<<<<< HEAD
         logger.info(
             "📊 Data Preparation Summary\n"
             + tabulate(
@@ -2116,6 +2238,9 @@ class DifferentiableAnalysis(Analysis):
             )
             + "\n"
         )
+=======
+        logger.info("📊 Data Processing Summary\n" + tabulate(table_data, headers=headers, tablefmt="grid", stralign="right") + "\n")
+>>>>>>> bfd419e (first go at improving skimming setup to work out of box)
 
         # Run MVA training after all datasets are processed
         models = {}
@@ -2165,7 +2290,7 @@ class DifferentiableAnalysis(Analysis):
     # Cut Optimisation via Gradient Ascent
     # -------------------------------------------------------------------------
     def run_analysis_optimisation(
-        self, fileset: dict[str, dict[str, Any]]
+        self
     ) -> Tuple[dict[str, jnp.ndarray], jnp.ndarray]:
         """
         Perform gradient-based optimisation of analysis selection cuts and
@@ -2189,7 +2314,7 @@ class DifferentiableAnalysis(Analysis):
             - Final JAX scalar p-value
         """
         # Log a summary of the configuration being used for this run
-        self._log_config_summary(fileset)
+        self._log_config_summary()
         cache_dir = "/tmp/gradients_analysis/"
         # ---------------------------------------------------------------------
         # If not just plotting, begin gradient-based optimisation chain
@@ -2212,6 +2337,7 @@ class DifferentiableAnalysis(Analysis):
             # ---------------------------------------------------------------------
             # 2. Preprocess events and extract MVA models (if any)
             # ---------------------------------------------------------------------
+<<<<<<< HEAD
             processed_data, mva_models, mva_nets, mva_data = (
                 self._prepare_data(
                     all_parameters,
@@ -2220,6 +2346,13 @@ class DifferentiableAnalysis(Analysis):
                     run_and_cache=run_and_cache,
                     cache_dir=cache_dir,
                 )
+=======
+            processed_data, mva_models, mva_nets, mva_data = self._prepare_data(
+                all_parameters,
+                read_from_cache=read_from_cache,
+                run_and_cache=run_and_cache,
+                cache_dir=cache_dir,
+>>>>>>> bfd419e (first go at improving skimming setup to work out of box)
             )
 
             # Add MVA model parameters to aux tree (flattened by name)
@@ -2265,7 +2398,7 @@ class DifferentiableAnalysis(Analysis):
             # Collect relevant processes and systematics
             # ----------------------------------------------------------------------
             processes, systematics = infer_processes_and_systematics(
-                fileset, self.config.systematics, self.config.corrections
+                self.processed_datasets, self.config.systematics, self.config.corrections
             )
             logger.info(f"Processes: {processes}")
             logger.info(f"Systematics: {systematics}")

@@ -1,11 +1,11 @@
 import json
 import logging
 from pathlib import Path
-from typing import Any, Dict, Union
+from typing import Any, Dict, Optional, Union
 
 from tabulate import tabulate
 
-defaul_dataset_json = Path("datasets/nanoaods.json")
+from utils.datasets import ConfigurableDatasetManager, create_default_dataset_config
 
 # Configure module-level logger
 logger = logging.getLogger(__name__)
@@ -14,7 +14,8 @@ logger = logging.getLogger(__name__)
 def construct_fileset(
     max_files_per_sample: int,
     preprocessor: str = "uproot",
-    json_path: Union[str, Path] = defaul_dataset_json,
+    json_path: Optional[Union[str, Path]] = None,
+    dataset_manager: Optional[ConfigurableDatasetManager] = None,
 ) -> Dict[str, Dict[str, Any]]:
     """
     Build a structured fileset mapping for physics analyses including
@@ -35,15 +36,23 @@ def construct_fileset(
         - other: list each file individually
         Default is "uproot".
     json_path : str or Path, optional
+<<<<<<< HEAD
         Path to the JSON configuration file specifying samples
         variations and file lists.
         Defaults to 'datasets/nanoaods.json'.
+=======
+        Path to the JSON configuration file specifying samples, variations, and file lists.
+        If None, uses dataset_manager.config.metadata_output_dir.
+    dataset_manager : ConfigurableDatasetManager, optional
+        Dataset manager containing all configuration for cross-sections, paths, etc.
+        If None, creates a default dataset manager.
+>>>>>>> bfd419e (first go at improving skimming setup to work out of box)
 
     Returns
     -------
     fileset : dict
         Nested mapping where each key "<process>__<variation>" maps to:
-        - files (dict): {file_path_or_pattern: "Events"}
+        - files (dict): {file_path_or_pattern: tree_name}
         - metadata (dict): {
             "process": str,
             "variation": str,
@@ -54,10 +63,12 @@ def construct_fileset(
 
     Raises
     ------
+    ValueError
+        If max_files_per_sample is invalid.
     FileNotFoundError
         If the JSON configuration file does not exist.
-    ValueError
-        If `max_files_per_sample` is less than -1.
+    KeyError
+        If a process is not found in the dataset manager configuration.
     JSONDecodeError
         If the JSON file cannot be parsed.
     """
@@ -68,7 +79,17 @@ def construct_fileset(
             f"got {max_files_per_sample}"
         )
 
-    json_file = Path(json_path)
+    print(dataset_manager.datasets)
+    # Use provided dataset manager or create default
+    if dataset_manager is None:
+        dataset_config = create_default_dataset_config()
+        dataset_manager = ConfigurableDatasetManager(dataset_config)
+
+    # Use provided json_path or get from dataset manager config
+    if json_path is None:
+        json_path = dataset_manager.config.metadata_output_dir
+
+    json_file = Path(json_path) / "nanoaods.json"
     if not json_file.is_file():
         raise FileNotFoundError(f"Dataset JSON file not found: {json_file}")
 
@@ -76,20 +97,14 @@ def construct_fileset(
     with json_file.open("r") as f:
         dataset_info = json.load(f)
 
-    # Cross-section lookup (in picobarns)
-    cross_section_map: Dict[str, float] = {
-        "signal": 1.0,
-        "ttbar_semilep": 831.76 * 0.438,
-        "ttbar_had": 831.76 * 0.457,
-        "ttbar_lep": 831.76 * 0.105,
-        "wjets": 61526.7,
-        "data": 1.0,
-    }
-
     fileset: Dict[str, Dict[str, Any]] = {}
 
     # Iterate over each process and its systematic variations
     for process_name, variations in dataset_info.items():
+        # Validate that process is configured in dataset manager
+        if not dataset_manager.validate_process(process_name):
+            raise KeyError(f"Process '{process_name}' not found in dataset manager configuration")
+
         for variation_name, info in variations.items():
             # Extract raw file entries
             raw_entries = info.get("files", [])
@@ -104,16 +119,21 @@ def construct_fileset(
                 entry.get("nevts_wt", 0.0) for entry in raw_entries
             )
 
+            # Get cross-section and tree name from dataset manager
+            xsec = dataset_manager.get_cross_section(process_name)
+            tree_name = dataset_manager.get_tree_name(process_name)
+
             # Prepare metadata dict
             metadata = {
                 "process": process_name,
                 "variation": variation_name,
                 "nevts": total_events,
                 "nevts_wt": total_weighted,
-                "xsec": cross_section_map.get(process_name, 0.0),
+                "xsec": xsec,
             }
 
             # Determine file path patterns or explicit paths
+<<<<<<< HEAD
             if preprocessor == "uproot":
                 # Use glob pattern for directory-based access
                 if process_name == "data":
@@ -134,6 +154,32 @@ def construct_fileset(
                 file_map = {
                     entry.get("path", ""): "Events" for entry in raw_entries
                 }
+=======
+            # if preprocessor == "uproot":
+            #     # Use glob pattern for directory-based access
+            #     remote_config = dataset_manager.get_remote_access_config(process_name)
+            #     if remote_config and remote_config.get("protocol") == "xrootd":
+            #         # Use configured remote access
+            #         base_pattern = (
+            #             f"{remote_config['base_url']}/"
+            #             f"{remote_config.get('path_pattern', '')}"
+            #         )
+            #         file_pattern = dataset_manager.get_file_pattern(process_name)
+            #         file_map = {f"{base_pattern}/{file_pattern}": tree_name}
+            #     else:
+            #         # Use local directory pattern - deduce from first file path
+            #         if raw_entries:
+            #             first_path = raw_entries[0].get("path", "")
+            #             base_pattern = str(Path(first_path).parents[1])
+            #             file_map = {f"{base_pattern}/*/*.root": tree_name}
+            #         else:
+            #             # No files available, create empty file map
+            #             file_map = {}
+            # else:
+            # Explicit file listings for other preprocessors
+            file_map = {entry.get("path", ""): tree_name for entry in raw_entries}
+            print(file_map)
+>>>>>>> bfd419e (first go at improving skimming setup to work out of box)
 
             key = f"{process_name}__{variation_name}"
             fileset[key] = {"files": file_map, "metadata": metadata}
@@ -146,12 +192,13 @@ def construct_fileset(
 
     # --- Add summary table ---
     summary_data = []
-    headers = ["Key", "Process", "Variation", "# Files"]
+    headers = ["Key", "Process", "Variation", "# Files", "Cross-section"]
     for key, content in fileset.items():
         process = content["metadata"]["process"]
         variation = content["metadata"]["variation"]
         num_files = len(content["files"])
-        summary_data.append([key, process, variation, num_files])
+        xsec = content["metadata"]["xsec"]
+        summary_data.append([key, process, variation, num_files, f"{xsec:.2f} pb"])
 
     # Sort by key for consistent output
     summary_data.sort(key=lambda x: x[0])

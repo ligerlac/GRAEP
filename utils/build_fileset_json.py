@@ -23,21 +23,12 @@ from typing import Any, Dict, List, Optional, Tuple, Union
 import awkward as ak
 import uproot
 
+from utils.datasets import ConfigurableDatasetManager, create_default_dataset_config
+
 
 # Configure module-level logger
 logger = logging.getLogger(__name__)
 logger.addHandler(logging.NullHandler())
-
-
-# Default directory mapping for each physics process
-DEFAULT_DATASET_DIRECTORIES: Dict[str, Path] = {
-    "signal": Path("datasets/signal/m400_w40/"),
-    "ttbar_semilep": Path("datasets/ttbar_semilep/"),
-    "ttbar_had": Path("datasets/ttbar_had/"),
-    "ttbar_lep": Path("datasets/ttbar_lep/"),
-    "wjets": Path("datasets/wjets/"),
-    "data": Path("datasets/data/"),
-}
 
 
 def get_root_file_paths(
@@ -88,29 +79,41 @@ def get_root_file_paths(
         for line in txt_file.read_text().splitlines():
             path_str = line.strip()
             if path_str:
-                root_paths.append(Path(path_str))
+                root_paths.append(path_str)
 
     return root_paths
 
 
+<<<<<<< HEAD
 def count_events_in_files(files: List[Path]) -> Tuple[List[int], List[float]]:
+=======
+def count_events_in_files(
+    files: List[Path],
+    tree_name: str = "Events",
+    weight_branch: str = "genWeight"
+) -> Tuple[List[int], List[float]]:
+>>>>>>> bfd419e (first go at improving skimming setup to work out of box)
     """
     Query ROOT files for event counts and sum of generator weights.
 
-    Opens each file with uproot, reads the "Events" TTree,
-    and accumulates the number of entries and sum of "genWeight".
+    Opens each file with uproot, reads the specified TTree,
+    and accumulates the number of entries and sum of weight branch.
 
     Parameters
     ----------
     files : list of Path
         Paths to ROOT files to inspect.
+    tree_name : str, optional
+        Name of the ROOT tree to read. Default is "Events".
+    weight_branch : str, optional
+        Name of the weight branch. Default is "genWeight".
 
     Returns
     -------
     num_entries : list of int
-        Number of events in each file's "Events" tree.
+        Number of events in each file's tree.
     sum_weights : list of float
-        Total of `genWeight` values per file.
+        Total of weight values per file.
     """
     num_entries: List[int] = []
     sum_weights: List[float] = []
@@ -125,9 +128,9 @@ def count_events_in_files(files: List[Path]) -> Tuple[List[int], List[float]]:
             )
         try:
             with uproot.open(file_path) as root_file:
-                tree = root_file["Events"]
+                tree = root_file[tree_name]
                 num_entries.append(tree.num_entries)
-                weights = tree["genWeight"].array(library="ak")
+                weights = tree[weight_branch].array(library="ak")
                 sum_weights.append(float(ak.sum(weights)))
         except Exception as err:
             logger.warning(f"Error reading {file_path}: {err}")
@@ -143,8 +146,8 @@ class NanoAODMetadataGenerator:
 
     Attributes
     ----------
-    process_directories : Dict[str, Path]
-        Map from process name to directory of `.txt` listings.
+    dataset_manager : ConfigurableDatasetManager
+        Dataset manager containing all configuration.
     output_directory : Path
         Directory where individual JSON files and master index will be written.
 
@@ -158,16 +161,27 @@ class NanoAODMetadataGenerator:
 
     def __init__(
         self,
+<<<<<<< HEAD
         process_directories: Optional[Dict[str, Union[str, Path]]] = None,
         output_directory: Union[
             str, Path
         ] = "datasets/nanoaods_jsons_per_process",
+=======
+        dataset_manager: Optional[ConfigurableDatasetManager] = None,
+        output_directory: Optional[Union[str, Path]] = None
+>>>>>>> bfd419e (first go at improving skimming setup to work out of box)
     ):
-        # Initialize mapping from process to directory path
-        raw_map = process_directories or DEFAULT_DATASET_DIRECTORIES
-        self.process_directories: Dict[str, Path] = {
-            name: Path(path) for name, path in raw_map.items()
-        }
+        # Use provided dataset manager or create default
+        if dataset_manager is None:
+            dataset_config = create_default_dataset_config()
+            self.dataset_manager = ConfigurableDatasetManager(dataset_config)
+        else:
+            self.dataset_manager = dataset_manager
+
+        # Use provided output directory or get from dataset manager config
+        if output_directory is None:
+            output_directory = self.dataset_manager.config.metadata_output_dir
+
         # Ensure output directory exists
         self.output_directory = Path(output_directory)
         self.output_directory.mkdir(parents=True, exist_ok=True)
@@ -194,15 +208,23 @@ class NanoAODMetadataGenerator:
         """
         results: Dict[str, Dict[str, Any]] = defaultdict(dict)
 
-        for process_name, listing_dir in self.process_directories.items():
+        for process_name in self.dataset_manager.list_processes():
             logger.info(f"Processing process: {process_name}")
+
+            # Get process configuration
+            listing_dir = self.dataset_manager.get_dataset_directory(process_name)
+            tree_name = self.dataset_manager.get_tree_name(process_name)
+            weight_branch = self.dataset_manager.get_weight_branch(process_name)
+
             try:
                 file_paths = get_root_file_paths(listing_dir, identifiers)
             except FileNotFoundError as fnf:
                 logger.error(fnf)
                 continue
 
-            entries_count, weight_sums = count_events_in_files(file_paths)
+            entries_count, weight_sums = count_events_in_files(
+                file_paths, tree_name=tree_name, weight_branch=weight_branch
+            )
             variation_label = "nominal"
             file_records = [
                 {"path": str(fp), "nevts": cnt, "nevts_wt": wt}
@@ -243,8 +265,8 @@ class NanoAODMetadataGenerator:
                     )
                 logger.debug(f"Wrote file: {output_file}")
 
-        # Write master metadata index
-        master_file = Path("datasets/nanoaods.json")
+        # Write master metadata index using configured path
+        master_file = Path(self.dataset_manager.config.metadata_output_dir) / "nanoaods.json"
         master_file.parent.mkdir(parents=True, exist_ok=True)
         with master_file.open("w") as mfile:
             json.dump(metadata, mfile, indent=4)
