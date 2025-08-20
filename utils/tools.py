@@ -4,10 +4,7 @@ from typing import Any, Dict, List, Mapping, Optional, Sequence, Tuple
 
 import awkward as ak
 
-<<<<<<< HEAD
-=======
 logger = logging.getLogger(__name__)
->>>>>>> bfd419e (first go at improving skimming setup to work out of box)
 
 def nested_defaultdict_to_dict(nested_structure: Any) -> dict:
     """
@@ -75,8 +72,6 @@ def recursive_to_backend(data_structure: Any, backend: str = "jax") -> Any:
     else:
         # Leave unchanged if not an Awkward structure
         return data_structure
-<<<<<<< HEAD
-=======
 
 
 def get_function_arguments(
@@ -130,4 +125,3 @@ def get_function_arguments(
                 raise_error(obj_name)
 
     return args
->>>>>>> bfd419e (first go at improving skimming setup to work out of box)

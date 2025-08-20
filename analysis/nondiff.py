@@ -3,13 +3,7 @@ import logging
 import os
 import warnings
 from collections import defaultdict
-<<<<<<< HEAD
 from typing import Any, Literal, Optional
-=======
-from functools import reduce
-from pathlib import Path
-from typing import Any, Dict, List, Literal, Optional, Tuple
->>>>>>> bfd419e (first go at improving skimming setup to work out of box)
 
 import awkward as ak
 import cabinetry
@@ -22,17 +16,10 @@ from coffea.nanoevents import NanoAODSchema, NanoEventsFactory
 
 from analysis.base import Analysis
 from user.cuts import lumi_mask
-<<<<<<< HEAD
 from utils.output_files import (
     save_histograms_to_pickle,
     save_histograms_to_root,
 )
-from utils.preproc import pre_process_dak, pre_process_uproot
-=======
-from utils.output_files import (load_histograms_from_pickle,
-                                save_histograms_to_pickle,
-                                save_histograms_to_root)
->>>>>>> bfd419e (first go at improving skimming setup to work out of box)
 from utils.stats import get_cabinetry_rebinning_router
 
 # -----------------------------
@@ -401,14 +388,8 @@ class NonDiffAnalysis(Analysis):
         """
         config = self.config
 
-<<<<<<< HEAD
-            os.makedirs(
-                f"{config.general.output_dir}/{dataset}", exist_ok=True
-            )
-=======
         if not self.processed_datasets:
             raise ValueError("No processed datasets provided to analysis")
->>>>>>> bfd419e (first go at improving skimming setup to work out of box)
 
         # Loop over processed datasets
         for dataset_name, events_list in self.processed_datasets.items():
@@ -424,33 +405,7 @@ class NonDiffAnalysis(Analysis):
                     self.process(events, metadata)
                     logger.info("📈 Non-differentiable histogram-filling complete.")
 
-<<<<<<< HEAD
-                skimmed_files = glob.glob(f"{output_dir}/part*.root")
-                skimmed_files = [f"{f}:{tree}" for f in skimmed_files]
-                remaining = sum(
-                    uproot.open(f).num_entries for f in skimmed_files
-                )
-                logger.info(
-                    f"✅ Events retained after filtering: {remaining:,}"
-                )
-                if config.general.run_histogramming:
-                    for skimmed in skimmed_files:
-                        logger.info(f"📘 Processing skimmed file: {skimmed}")
-                        logger.info(
-                            "📈 Processing for non-differentiable analysis"
-                        )
-                        events = NanoEventsFactory.from_root(
-                            skimmed, schemaclass=NanoAODSchema, delayed=False
-                        ).events()
-                        self.process(events, metadata)
-                        logger.info(
-                            "📈 Non-differentiable histogram-filling complete."
-                        )
-
-            logger.info(f"🏁 Finished dataset: {dataset}\n")
-=======
             logger.info(f"🏁 Finished dataset: {dataset_name}\n")
->>>>>>> bfd419e (first go at improving skimming setup to work out of box)
 
         # Report end of processing
         logger.info("✅ All datasets processed.")

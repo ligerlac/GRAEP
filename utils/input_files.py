@@ -36,17 +36,11 @@ def construct_fileset(
         - other: list each file individually
         Default is "uproot".
     json_path : str or Path, optional
-<<<<<<< HEAD
-        Path to the JSON configuration file specifying samples
-        variations and file lists.
-        Defaults to 'datasets/nanoaods.json'.
-=======
         Path to the JSON configuration file specifying samples, variations, and file lists.
         If None, uses dataset_manager.config.metadata_output_dir.
     dataset_manager : ConfigurableDatasetManager, optional
         Dataset manager containing all configuration for cross-sections, paths, etc.
         If None, creates a default dataset manager.
->>>>>>> bfd419e (first go at improving skimming setup to work out of box)
 
     Returns
     -------
@@ -133,28 +127,6 @@ def construct_fileset(
             }
 
             # Determine file path patterns or explicit paths
-<<<<<<< HEAD
-            if preprocessor == "uproot":
-                # Use glob pattern for directory-based access
-                if process_name == "data":
-                    # CMS public EOS path for collision data
-                    base_pattern = (
-                        "root://eospublic.cern.ch//eos/opendata/cms/"
-                        "Run2016*/SingleMuon/NANOAOD/"
-                        "UL2016_MiniAODv2_NanoAODv9-v1"
-                    )
-                else:
-                    # Deduce directory from first file path
-                    first_path = raw_entries[0].get("path", "")
-                    base_pattern = str(Path(first_path).parents[1])
-
-                file_map = {f"{base_pattern}/*/*.root": "Events"}
-            else:
-                # Explicit file listings for other preprocessors
-                file_map = {
-                    entry.get("path", ""): "Events" for entry in raw_entries
-                }
-=======
             # if preprocessor == "uproot":
             #     # Use glob pattern for directory-based access
             #     remote_config = dataset_manager.get_remote_access_config(process_name)
@@ -179,7 +151,6 @@ def construct_fileset(
             # Explicit file listings for other preprocessors
             file_map = {entry.get("path", ""): tree_name for entry in raw_entries}
             print(file_map)
->>>>>>> bfd419e (first go at improving skimming setup to work out of box)
 
             key = f"{process_name}__{variation_name}"
             fileset[key] = {"files": file_map, "metadata": metadata}

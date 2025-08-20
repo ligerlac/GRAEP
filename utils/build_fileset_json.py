@@ -84,15 +84,11 @@ def get_root_file_paths(
     return root_paths
 
 
-<<<<<<< HEAD
-def count_events_in_files(files: List[Path]) -> Tuple[List[int], List[float]]:
-=======
 def count_events_in_files(
     files: List[Path],
     tree_name: str = "Events",
     weight_branch: str = "genWeight"
 ) -> Tuple[List[int], List[float]]:
->>>>>>> bfd419e (first go at improving skimming setup to work out of box)
     """
     Query ROOT files for event counts and sum of generator weights.
 
@@ -161,15 +157,8 @@ class NanoAODMetadataGenerator:
 
     def __init__(
         self,
-<<<<<<< HEAD
-        process_directories: Optional[Dict[str, Union[str, Path]]] = None,
-        output_directory: Union[
-            str, Path
-        ] = "datasets/nanoaods_jsons_per_process",
-=======
         dataset_manager: Optional[ConfigurableDatasetManager] = None,
         output_directory: Optional[Union[str, Path]] = None
->>>>>>> bfd419e (first go at improving skimming setup to work out of box)
     ):
         # Use provided dataset manager or create default
         if dataset_manager is None:

@@ -119,16 +119,8 @@ class GeneralConfig(SubscriptableModel):
     ]
     analysis: Annotated[
         Optional[str],
-<<<<<<< HEAD
-        Field(
-            default="nondiff",
-            description="The analysis mode to run: 'diff' (differentiable) "
-            "'nondiff' or 'both'.",
-        ),
-=======
         Field(default="nondiff",
               description="The analysis mode to run: 'diff' (differentiable), 'nondiff', 'both', or 'skip' (skim-only mode)."),
->>>>>>> bfd419e (first go at improving skimming setup to work out of box)
     ]
     max_files: Annotated[
         Optional[int],
@@ -215,16 +207,6 @@ class GeneralConfig(SubscriptableModel):
             "'dask-awkward'.",
         ),
     ]
-<<<<<<< HEAD
-    preprocessed_dir: Annotated[
-        Optional[str],
-        Field(
-            default=None,
-            description="Directory containing pre-processed (skimmed) ROOT files.",
-        ),
-    ]
-=======
->>>>>>> bfd419e (first go at improving skimming setup to work out of box)
     cache_dir: Annotated[
         Optional[str],
         Field(

@@ -37,25 +37,6 @@ LIST_OF_VARS = [
 # ==============================================================================
 
 general_config = {
-<<<<<<< HEAD
-    "lumi": 16400,
-    "weights_branch": "genWeight",
-    "max_files": -1,
-    "analysis": "diff",
-    "run_preprocessing": False,
-    "run_histogramming": False,
-    "run_statistics": False,
-    "run_systematics": False,
-    "run_plots_only": False,
-    "run_mva_training": True,
-    "read_from_cache": True,
-    "output_dir": "outputs/traced_zprime_with_jax_nn/",
-    "preprocessed_dir": "./preproc_uproot/z-prime-ttbar-data/",
-    "processor": "uproot",
-    "lumifile": "./corrections/Cert_271036-284044_13TeV_Legacy2016_"\
-        "Collisions16_JSON.txt",
-    "cache_dir": "/tmp/gradients_analysis/",
-=======
         "lumi": 16400,
         "weights_branch": "genWeight",
         "max_files": -1,
@@ -74,7 +55,6 @@ general_config = {
             "Collisions16_JSON.txt",
         "cache_dir": "/tmp/gradients_analysis/",
         "processes": ["signal"]
->>>>>>> bfd419e (first go at improving skimming setup to work out of box)
 }
 
 # ==============================================================================
@@ -82,22 +62,6 @@ general_config = {
 # ==============================================================================
 
 preprocess_config = {
-<<<<<<< HEAD
-    "branches": {
-        "Muon": ["pt", "eta", "phi", "mass", "miniIsoId", "tightId", "charge"],
-        "FatJet": ["particleNet_TvsQCD", "pt", "eta", "phi", "mass"],
-        "Jet": ["btagDeepB", "jetId", "pt", "eta", "phi", "mass"],
-        "PuppiMET": ["pt", "phi"],
-        "HLT": ["TkMu50"],
-        "Pileup": ["nTrueInt"],
-        "event": ["genWeight", "run", "luminosityBlock"],
-    },
-    "ignore_missing": False,  # is this implemented?
-    "mc_branches": {
-        "event": ["genWeight", "luminosityBlock"],
-        "Pileup": ["nTrueInt"],
-    },
-=======
         "branches": {
             "Muon": ["pt", "eta", "phi", "mass", "miniIsoId", "tightId", "charge"],
             "FatJet": ["particleNet_TvsQCD", "pt", "eta", "phi", "mass"],
@@ -113,7 +77,6 @@ preprocess_config = {
             "Pileup": ["nTrueInt"],
         },
         "skimming": skimming_config,
->>>>>>> bfd419e (first go at improving skimming setup to work out of box)
 }
 
 # ==============================================================================
