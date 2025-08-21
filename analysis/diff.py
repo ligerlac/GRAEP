@@ -26,7 +26,7 @@ import optax
 import uproot
 import vector
 from coffea.analysis_tools import PackedSelection
-from coffea.nanoevents import NanoAODSchema, NanoEventsFactory
+from coffea.nanoevents import NanoAODSchema
 from jaxopt import OptaxSolver
 from tabulate import tabulate
 
@@ -46,7 +46,6 @@ from utils.plot import (
     plot_parameters_over_iterations,
     plot_pvalue_vs_parameters,
 )
-from utils.preproc import pre_process_dak, pre_process_uproot
 from utils.tools import nested_defaultdict_to_dict, recursive_to_backend
 
 
@@ -772,7 +771,6 @@ class DifferentiableAnalysis(Analysis):
         self.dirs.update(
             {
                 "cache": cache,
-                "preproc": Path(preproc) if preproc else None,
                 "mva_models": mva,
                 "optimisation_plots": optimisation_plots,
                 "fit_plots": fit_plots,

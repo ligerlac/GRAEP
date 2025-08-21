@@ -73,7 +73,6 @@ def construct_fileset(
             f"got {max_files_per_sample}"
         )
 
-    print(dataset_manager.datasets)
     # Use provided dataset manager or create default
     if dataset_manager is None:
         dataset_config = create_default_dataset_config()
@@ -126,31 +125,8 @@ def construct_fileset(
                 "xsec": xsec,
             }
 
-            # Determine file path patterns or explicit paths
-            # if preprocessor == "uproot":
-            #     # Use glob pattern for directory-based access
-            #     remote_config = dataset_manager.get_remote_access_config(process_name)
-            #     if remote_config and remote_config.get("protocol") == "xrootd":
-            #         # Use configured remote access
-            #         base_pattern = (
-            #             f"{remote_config['base_url']}/"
-            #             f"{remote_config.get('path_pattern', '')}"
-            #         )
-            #         file_pattern = dataset_manager.get_file_pattern(process_name)
-            #         file_map = {f"{base_pattern}/{file_pattern}": tree_name}
-            #     else:
-            #         # Use local directory pattern - deduce from first file path
-            #         if raw_entries:
-            #             first_path = raw_entries[0].get("path", "")
-            #             base_pattern = str(Path(first_path).parents[1])
-            #             file_map = {f"{base_pattern}/*/*.root": tree_name}
-            #         else:
-            #             # No files available, create empty file map
-            #             file_map = {}
-            # else:
             # Explicit file listings for other preprocessors
             file_map = {entry.get("path", ""): tree_name for entry in raw_entries}
-            print(file_map)
 
             key = f"{process_name}__{variation_name}"
             fileset[key] = {"files": file_map, "metadata": metadata}

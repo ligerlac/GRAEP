@@ -12,6 +12,7 @@ import glob
 import hashlib
 import logging
 import os
+import warnings
 from pathlib import Path
 from typing import Any, Dict, Optional, Union
 
@@ -28,6 +29,9 @@ from utils.schema import SkimmingConfig
 from utils.tools import get_function_arguments
 
 logger = logging.getLogger(__name__)
+
+NanoAODSchema.warn_missing_crossrefs = False
+warnings.filterwarnings("ignore", category=FutureWarning, module="coffea.*")
 
 # Fixed output pattern for simplicity
 SKIMMING_OUTPUT_PATTERN = "part_{chunk}.root"  # chunk number will be filled in
@@ -491,6 +495,7 @@ class ConfigurableSkimmingManager:
         )
 
         n_chunks = (total_events + step_size - 1) // step_size
+        print('\n')
         pbar = tqdm(iterable, total=n_chunks, desc="Processing events", unit="chunk")
 
         chunk_num = 0
@@ -521,10 +526,12 @@ class ConfigurableSkimmingManager:
                 filtered_data = {branch: arrays[branch] for branch in arrays.fields}
                 output_tree.extend(filtered_data)
 
+
             files_created += 1
             chunk_num += 1
 
         pbar.close()
+        print('\n')
 
         if files_created > 0:
             logger.info(f"💾 Wrote {files_created} skimmed chunks to: {output_dir}")
@@ -655,9 +662,10 @@ def process_fileset_with_skimming(config, fileset, cache_dir="/tmp/gradients_ana
                 else:
                     logger.info(f"Processing {skimmed_file}")
                     events = NanoEventsFactory.from_root(
-                        skimmed_file, schemaclass=NanoAODSchema
+                        skimmed_file, schemaclass=NanoAODSchema,
+                        delayed=False,
                     ).events()
-                    events = ak.materialize(events)
+                    print(len(events), "MOO")
 
                     # Cache the events if not reading from cache
                     if not config.general.read_from_cache:

@@ -211,9 +211,10 @@ class NanoAODMetadataGenerator:
                 logger.error(fnf)
                 continue
 
-            entries_count, weight_sums = count_events_in_files(
-                file_paths, tree_name=tree_name, weight_branch=weight_branch
-            )
+            # entries_count, weight_sums = count_events_in_files(
+            #     file_paths, tree_name=tree_name, weight_branch=weight_branch
+            # )
+            entries_count, weight_sums = [0.0]*len(file_paths), [0.0]*len(file_paths)
             variation_label = "nominal"
             file_records = [
                 {"path": str(fp), "nevts": cnt, "nevts_wt": wt}

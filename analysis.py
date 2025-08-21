@@ -5,13 +5,10 @@ ZprimeAnalysis framework for applying object and event-level systematic correcti
 on NanoAOD ROOT files and producing histograms of observables like mtt. Supports both
 correctionlib-based and function-based corrections.
 """
-import hashlib
 import logging
-import os
 import sys
+import warnings
 
-import cloudpickle
-import uproot
 from coffea.nanoevents import NanoAODSchema, NanoEventsFactory
 
 from analysis.diff import DifferentiableAnalysis
@@ -37,6 +34,9 @@ root_logger.addHandler(handler)
 
 logger = logging.getLogger("AnalysisDriver")
 logging.getLogger("jax._src.xla_bridge").setLevel(logging.ERROR)
+
+NanoAODSchema.warn_missing_crossrefs = False
+warnings.filterwarnings("ignore", category=FutureWarning, module="coffea.*")
 
 # -----------------------------
 # Main Driver

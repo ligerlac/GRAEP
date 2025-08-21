@@ -4,7 +4,7 @@ import os
 import warnings
 from collections import defaultdict
 from typing import Any, Literal, Optional
-
+from typing import Any, Literal, Optional, Dict, List, Tuple
 import awkward as ak
 import cabinetry
 import hist
