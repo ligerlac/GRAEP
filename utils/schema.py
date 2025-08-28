@@ -122,14 +122,6 @@ class GeneralConfig(SubscriptableModel):
         Field(default="nondiff",
               description="The analysis mode to run: 'diff' (differentiable), 'nondiff', 'both', or 'skip' (skim-only mode)."),
     ]
-    max_files: Annotated[
-        Optional[int],
-        Field(
-            default=1,
-            description="Maximum number of files to process per dataset. "
-            "Use -1 for no limit.",
-        ),
-    ]
     run_skimming: Annotated[
         bool,
         Field(
@@ -334,6 +326,14 @@ class DatasetManagerConfig(SubscriptableModel):
     metadata_output_dir: Annotated[
         str,
         Field(default="datasets/nanoaods_jsons/", description="Directory for metadata JSON files")
+    ]
+    max_files: Annotated[
+        Optional[int],
+        Field(
+            default=None,
+            description="Maximum number of files to process per dataset. "
+            "Use -1 for no limit.",
+        ),
     ]
 
 # ------------------------

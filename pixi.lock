@@ -54,7 +54,7 @@ environments:
       - conda: https://conda.anaconda.org/conda-forge/noarch/chex-0.1.90-pyhd8ed1ab_0.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/click-8.2.1-pyh707e725_0.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/cloudpickle-3.1.1-pyhd8ed1ab_0.conda
-      - conda: https://conda.anaconda.org/conda-forge/noarch/coffea-2024.11.0-pyhff2d567_0.conda
+      - conda: https://conda.anaconda.org/conda-forge/noarch/coffea-2025.7.3-pyhe01879c_0.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/colorama-0.4.6-pyhd8ed1ab_1.conda
       - conda: https://conda.anaconda.org/conda-forge/linux-64/contourpy-1.3.3-py312hd9148b4_1.conda
       - conda: https://conda.anaconda.org/conda-forge/linux-64/correctionlib-2.7.0-py312ha04a795_0.conda
@@ -317,7 +317,7 @@ environments:
       - conda: https://conda.anaconda.org/conda-forge/noarch/chex-0.1.90-pyhd8ed1ab_0.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/click-8.2.1-pyh707e725_0.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/cloudpickle-3.1.1-pyhd8ed1ab_0.conda
-      - conda: https://conda.anaconda.org/conda-forge/noarch/coffea-2024.11.0-pyhff2d567_0.conda
+      - conda: https://conda.anaconda.org/conda-forge/noarch/coffea-2025.7.3-pyhe01879c_0.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/colorama-0.4.6-pyhd8ed1ab_1.conda
       - conda: https://conda.anaconda.org/conda-forge/osx-arm64/contourpy-1.3.3-py312ha0dd364_1.conda
       - conda: https://conda.anaconda.org/conda-forge/osx-arm64/correctionlib-2.7.0-py312h674a3be_0.conda
@@ -593,7 +593,7 @@ environments:
       - conda: https://conda.anaconda.org/conda-forge/noarch/chex-0.1.90-pyhd8ed1ab_0.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/click-8.2.1-pyh707e725_0.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/cloudpickle-3.1.1-pyhd8ed1ab_0.conda
-      - conda: https://conda.anaconda.org/conda-forge/noarch/coffea-2024.11.0-pyhff2d567_0.conda
+      - conda: https://conda.anaconda.org/conda-forge/noarch/coffea-2025.7.3-pyhe01879c_0.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/colorama-0.4.6-pyhd8ed1ab_1.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/comm-0.2.3-pyhe01879c_0.conda
       - conda: https://conda.anaconda.org/conda-forge/linux-64/contourpy-1.3.3-py312hd9148b4_1.conda
@@ -919,7 +919,7 @@ environments:
       - conda: https://conda.anaconda.org/conda-forge/noarch/chex-0.1.90-pyhd8ed1ab_0.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/click-8.2.1-pyh707e725_0.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/cloudpickle-3.1.1-pyhd8ed1ab_0.conda
-      - conda: https://conda.anaconda.org/conda-forge/noarch/coffea-2024.11.0-pyhff2d567_0.conda
+      - conda: https://conda.anaconda.org/conda-forge/noarch/coffea-2025.7.3-pyhe01879c_0.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/colorama-0.4.6-pyhd8ed1ab_1.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/comm-0.2.3-pyhe01879c_0.conda
       - conda: https://conda.anaconda.org/conda-forge/osx-arm64/contourpy-1.3.3-py312ha0dd364_1.conda
@@ -2379,41 +2379,41 @@ packages:
   - pkg:pypi/cloudpickle?source=hash-mapping
   size: 25870
   timestamp: 1736947650712
-- conda: https://conda.anaconda.org/conda-forge/noarch/coffea-2024.11.0-pyhff2d567_0.conda
-  sha256: 2a3da1def761d431f0ec2513283067e2c0123d5e13c3964a10209a14bbc8b81e
-  md5: 41d9db9fe41968836548bbb87b52ddf4
+- conda: https://conda.anaconda.org/conda-forge/noarch/coffea-2025.7.3-pyhe01879c_0.conda
+  sha256: a50dc13ddc5be38b166ff36ec4fc29b0b417e95d065b840aff820bce02927e00
+  md5: 7e856501b490d4e81f3a2071456d0acc
   depends:
-  - aiohttp
-  - awkward >=2.6.7
-  - cachetools
-  - cloudpickle >=1.2.3
-  - correctionlib >=2.6.0
-  - dask-awkward >=2024.9.0
+  - python >=3.9
+  - awkward >=2.8.2
+  - uproot >=5.6.0
   - dask-core >=2024.3.0
-  - dask-histogram >=2024.9.1
-  - fsspec-xrootd >=0.2.3
-  - hist >=2
-  - lz4
+  - dask-awkward >=2025.5.0
+  - dask-histogram >=2025.2.0
+  - vector >=1.4.1,!=1.6.0
+  - correctionlib >=2.6.0
+  - pyarrow >=6.0.0,<21.0.0
   - matplotlib-base >=3
-  - mplhep >=0.1.18
   - numba >=0.58.1
-  - numpy >=1.22.0
+  - numpy >=1.22
+  - scipy >=1.1.0
+  - tqdm >=4.27.0
+  - lz4
+  - cloudpickle >=1.2.3
+  - toml >=0.10.2
+  - mplhep >=0.1.18
   - packaging
   - pandas
-  - pyarrow >=6.0.0
-  - python >=3.9
+  - hist >=2
+  - cachetools
   - requests
-  - scipy >=1.1.0
-  - toml >=0.10.2
-  - tqdm >=4.27.0
-  - uproot >=5.3.11
-  - vector >=1.4.1
+  - aiohttp
+  - python
   license: BSD-3-Clause
   license_family: BSD
   purls:
   - pkg:pypi/coffea?source=hash-mapping
-  size: 142249
-  timestamp: 1732180728179
+  size: 191630
+  timestamp: 1753651485872
 - conda: https://conda.anaconda.org/conda-forge/noarch/colorama-0.4.6-pyhd8ed1ab_1.conda
   sha256: ab29d57dc70786c1269633ba3dff20288b81664d3ff8d21af995742e2bb03287
   md5: 962b9857ee8e7018c22f2776ffa0b2d7

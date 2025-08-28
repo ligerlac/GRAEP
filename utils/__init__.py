@@ -1,4 +1,4 @@
-from . import build_fileset_json as build_fileset_json
+from . import metadata_extractor as metadata_extractor
 from . import input_files as input_files
 from . import jax_stats as jax_stats
 from . import output_files as output_files

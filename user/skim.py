@@ -70,7 +70,8 @@ datasets_config = [
 
 dataset_manager_config = {
     "datasets": datasets_config,
-    "metadata_output_dir": "output_jax_nn_standalone/skimmed/nanoaods_jsons/"
+    "metadata_output_dir": "outputs/test_metadata/skimmed/nanoaods_jsons/",
+    "max_files": 1  # No limit by default
 }
 
 # ==============================================================================

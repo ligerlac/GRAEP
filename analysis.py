@@ -18,7 +18,7 @@ from utils.input_files import construct_fileset
 from utils.datasets import ConfigurableDatasetManager
 from utils.logging import ColoredFormatter, _banner
 from utils.schema import Config, load_config_with_restricted_cli
-from utils.build_fileset_json import NanoAODMetadataGenerator
+from utils.metadata_extractor import NanoAODMetadataGenerator
 from utils.skimming import process_fileset_with_skimming
 
 # -----------------------------
@@ -51,26 +51,14 @@ def main():
     config = Config(**full_config)  # Pydantic validation
     logger.info(f"Luminosity: {config.general.lumi}")
 
-    # Build JSON metadata before constructing fileset if dataset manager is configured
-    dataset_manager = None
-    if config.datasets:
-        dataset_manager = ConfigurableDatasetManager(config.datasets)
-
-        # Conditionally run metadata generation
-        if config.general.run_metadata_generation:
-            logger.info(_banner("Building JSON Metadata Before Skimming"))
-            # Build JSON metadata for datasets
-            generator = NanoAODMetadataGenerator(dataset_manager=dataset_manager)
-            generator.run()
-            logger.info("JSON metadata generation complete")
-        else:
-            logger.info(f"Skipping metadata generation - using existing metadata from {dataset_manager.config.metadata_output_dir}")
-
-    fileset = construct_fileset(
-        max_files_per_sample=config.general.max_files,
-        dataset_manager=dataset_manager,
-    )
-
+    dataset_manager = ( ConfigurableDatasetManager(config.datasets)
+                       if config.datasets
+                       else None
+                    )
+    generator = NanoAODMetadataGenerator(dataset_manager=dataset_manager)
+    generator.run(generate_metadata=config.general.run_metadata_generation)
+    fileset = generator.fileset
+    print(fileset)
     # Process fileset with skimming and get processed events
     logger.info(_banner("SKIMMING AND CACHING DATA"))
     processed_datasets = process_fileset_with_skimming(config, fileset)

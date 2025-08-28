@@ -269,5 +269,6 @@ def create_default_dataset_config() -> DatasetManagerConfig:
 
     return DatasetManagerConfig(
         datasets=datasets,
-        metadata_output_dir="datasets/nanoaods_jsons/"
+        metadata_output_dir="datasets/nanoaods_jsons/",
+        max_files=-1  # No limit by default
     )

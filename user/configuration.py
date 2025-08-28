@@ -49,7 +49,7 @@ general_config = {
         "run_mva_training": True,
         "run_metadata_generation": True,
         "read_from_cache": True,
-        "output_dir": "outputs/traced_zprime_with_jax_nn/",
+        "output_dir": "outputs/test_metadata/",
         "processor": "uproot",
         "lumifile": "./corrections/Cert_271036-284044_13TeV_Legacy2016_"\
             "Collisions16_JSON.txt",

@@ -410,7 +410,7 @@ class ConfigurableSkimmingManager:
                 schemaclass=NanoAODSchema,
                 entry_start=start,
                 entry_stop=stop,
-                mode="dask",
+                mode="eager",
             ).events()
 
             # Apply configurable selection
@@ -628,11 +628,6 @@ def process_fileset_with_skimming(config, fileset, cache_dir="/tmp/gradients_ana
 
         # Loop over ROOT files associated with the dataset
         for idx, (file_path, tree) in enumerate(content["files"].items()):
-            # Honour file limit if set in configuration
-            if config.general.max_files != -1 and idx >= config.general.max_files:
-                logger.info(f"Reached max files limit ({config.general.max_files})")
-                break
-
             # Run skimming if enabled
             if config.general.run_skimming:
                 logger.info(f"🔍 Skimming input file: {file_path}")
@@ -642,14 +637,13 @@ def process_fileset_with_skimming(config, fileset, cache_dir="/tmp/gradients_ana
                     dataset=dataset,
                     file_idx=idx,
                     configuration=config,
-                    is_mc=(dataset != "data")
+                    is_mc=("data__" not in dataset)
                 )
 
             # Discover skimmed files using skimming manager
             skimmed_files = skimming_manager.discover_skimmed_files(dataset, idx)
 
             # Process each skimmed file
-            tree_name = skimming_manager.get_tree_name()
             for skimmed_file in skimmed_files:
                 cache_key = hashlib.md5(skimmed_file.encode()).hexdigest()
                 cache_file = os.path.join(cache_dir, f"{dataset}__{cache_key}.pkl")
@@ -663,9 +657,8 @@ def process_fileset_with_skimming(config, fileset, cache_dir="/tmp/gradients_ana
                     logger.info(f"Processing {skimmed_file}")
                     events = NanoEventsFactory.from_root(
                         skimmed_file, schemaclass=NanoAODSchema,
-                        delayed=False,
+                        mode="eager",
                     ).events()
-                    print(len(events), "MOO")
 
                     # Cache the events if not reading from cache
                     if not config.general.read_from_cache:
