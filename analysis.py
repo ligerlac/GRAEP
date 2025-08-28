@@ -14,7 +14,6 @@ from coffea.nanoevents import NanoAODSchema, NanoEventsFactory
 from analysis.diff import DifferentiableAnalysis
 from analysis.nondiff import NonDiffAnalysis
 from user.configuration import config as ZprimeConfig
-from utils.input_files import construct_fileset
 from utils.datasets import ConfigurableDatasetManager
 from utils.logging import ColoredFormatter, _banner
 from utils.schema import Config, load_config_with_restricted_cli
