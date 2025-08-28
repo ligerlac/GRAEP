@@ -72,7 +72,7 @@ preprocess_config = {
         },
         "ignore_missing": False,  # is this implemented?
         "mc_branches": {
-            "event": ["genWeight", "luminosityBlock"],
+            "event": ["genWeight"],
             "Pileup": ["nTrueInt"],
         },
         "skimming": skimming_config,

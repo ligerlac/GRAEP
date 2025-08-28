@@ -316,6 +316,7 @@ class ConfigurableSkimmingManager:
                 flat.extend(
                     brs if obj == "event" else [f"{obj}_{br}" for br in brs]
                 )
+
             return flat
 
         raise ValueError("Invalid mode: use 'dask' or 'uproot'.")
@@ -624,7 +625,6 @@ def process_fileset_with_skimming(config, fileset, cache_dir="/tmp/gradients_ana
             logger.debug(f"Using uproot skimming mode for {dataset}")
 
         logger.info(f"🚀 Processing dataset: {dataset}")
-
         # Loop over ROOT files associated with the dataset
         for idx, (file_path, tree) in enumerate(content["files"].items()):
             # Run skimming if enabled
@@ -635,7 +635,7 @@ def process_fileset_with_skimming(config, fileset, cache_dir="/tmp/gradients_ana
                     dataset=dataset,
                     file_idx=idx,
                     configuration=config,
-                    is_mc=("data__" not in dataset)
+                    is_mc=("data" != dataset)
                 )
 
             # Discover skimmed files using skimming manager
