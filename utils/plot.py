@@ -19,7 +19,7 @@ from matplotlib import rcParams
 from matplotlib.gridspec import GridSpec
 from matplotlib.ticker import ScalarFormatter
 
-from utils.logging import ColoredFormatter
+from utils.logging import setup_logging
 
 # Configure matplotlib global settings
 rcParams.update(
@@ -34,13 +34,9 @@ rcParams.update(
 # Type alias for array-like objects (supports JAX, NumPy, etc.)
 ArrayLike = Union[np.ndarray, Any]
 
-# Set up module-specific logger with colored formatting
+# Set up module-specific logger with setup_logging function
+setup_logging("INFO")
 logger = logging.getLogger(__name__)
-if not logger.handlers:
-    handler = logging.StreamHandler()
-    handler.setFormatter(ColoredFormatter())
-    logger.addHandler(handler)
-    logger.setLevel(logging.INFO)
 
 
 def format_scientific_latex(value: float, significant_digits: int = 2) -> str:

@@ -37,7 +37,7 @@ from analysis.base import Analysis
 from user.cuts import lumi_mask
 # from utils.jax_stats import build_channel_data_scalar, compute_discovery_pvalue
 from utils.evm_stats import build_channel_data_scalar, compute_discovery_pvalue, fit_params
-from utils.logging import BLUE, GREEN, RED, RESET, _banner
+from utils.logging import BLUE, GREEN, RED, RESET, log_banner
 from utils.mva import JAXNetwork, TFNetwork
 from utils.plot import (
     create_cms_histogram,
@@ -780,7 +780,7 @@ class DifferentiableAnalysis(Analysis):
 
     def _log_config_summary(self) -> None:
         """Logs a structured summary of the key analysis configuration options."""
-        logger.info(_banner("Differentiable Analysis Configuration Summary"))
+        log_banner("Differentiable Analysis Configuration Summary")
 
         # --- General Settings ---
         general_cfg = self.config.general
@@ -1809,7 +1809,7 @@ class DifferentiableAnalysis(Analysis):
         }
         summary_data = []
 
-        logger.info(_banner("Processing skimmed data"))
+        log_banner("Processing skimmed data")
 
         # Prepare dictionary to collect MVA training data
         mva_data: dict[str, dict[str, list[Tuple[dict, int]]]] = defaultdict(
@@ -2022,7 +2022,7 @@ class DifferentiableAnalysis(Analysis):
             self.config.general.run_mva_training
             and (mva_cfg := self.config.mva) is not None
         ):
-            logger.info(_banner("Executing MVA Pre-training"))
+            log_banner("Executing MVA Pre-training")
             models, nets = self._run_mva_training(mva_data)
 
             # Save trained models and attach to processed data
@@ -2177,7 +2177,7 @@ class DifferentiableAnalysis(Analysis):
             # ----------------------------------------------------------------------
             # Prepare for optimisation
             # ----------------------------------------------------------------------
-            logger.info(_banner("Preparing for parameter optimisation"))
+            log_banner("Preparing for parameter optimisation")
 
             # Define objective for optimiser (p-value to minimise)
             def objective(
@@ -2237,7 +2237,7 @@ class DifferentiableAnalysis(Analysis):
             )(all_parameters)
 
             # Set up optimisation loop
-            logger.info(_banner("Beginning parameter optimisation"))
+            log_banner("Beginning parameter optimisation")
             initial_params = all_parameters.copy()
             pval_history = []
             aux_history = {
@@ -2335,7 +2335,7 @@ class DifferentiableAnalysis(Analysis):
             )
 
             # Log final summary table comparing initial and final states
-            logger.info(_banner("Optimisation results"))
+            log_banner("Optimisation results")
             _log_parameter_update(
                 step="",
                 old_p_value=float(initial_pvalue),
@@ -2410,7 +2410,7 @@ class DifferentiableAnalysis(Analysis):
                 with open(path, "wb") as f:
                     pickle.dump(jax.tree.map(np.array, optimised_nn_params), f)
 
-        logger.info(_banner("Making plots and summaries"))
+        log_banner("Making plots and summaries")
         # ---------------------------------------------------------------------
         # 4. Reload results and generate summary plots
         # ---------------------------------------------------------------------
@@ -2430,7 +2430,7 @@ class DifferentiableAnalysis(Analysis):
         final_mva_scores = results["final_mva_scores"]
         initial_mva_scores = results["initial_mva_scores"]
 
-        logger.info(_banner("Generating parameter evolution plots"))
+        log_banner("Generating parameter evolution plots")
         # Generate optimisation progress plots
         if self.config.jax.explicit_optimisation:
             logger.info("Generating parameter history plots")

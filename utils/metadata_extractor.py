@@ -20,6 +20,7 @@ from typing import Any, Dict, List, Optional, Tuple, Union
 
 # Third-party imports
 from coffea.processor.executor import WorkItem
+from rich.pretty import pretty_repr
 
 # Local application imports
 from utils.datasets import ConfigurableDatasetManager, create_default_dataset_config
@@ -179,7 +180,6 @@ class FilesetBuilder:
                     dataset_key = f"{process_name}__{variation_label}"
                 else:
                     dataset_key = process_name
-
                 # Create the fileset entry: map each file path to its tree name
                 fileset[dataset_key] = {
                     "files": {file_path: tree_name for file_path in file_paths},
@@ -419,8 +419,8 @@ class NanoAODMetadataGenerator:
             self.write_nanoaods_summary()
             logger.info("Metadata generation complete.")
         else:
-            logger.info(f"Skipping metadata generation - using existing metadata from \
-                        {self._get_metadata_paths()}")
+            logger.info(f"Skipping metadata generation - using existing metadata from \n %s",
+                        pretty_repr(self._get_metadata_paths()))
             try:
                 self.read_fileset()
                 self.read_metadata()

@@ -37,6 +37,7 @@ xrootd = ">=5.8.1,<6"
 optimistix = ">=0.0.10"
 ipython = ">=9.4.0,<10"
 fsspec-xrootd = ">=0.4.0"
+rich = ">=14.1.0,<15"
 
 [pypi-dependencies]
 relaxed = { git = "https://github.com/pfackeldey/relaxed.git", branch = "fixes_for_zprime" }

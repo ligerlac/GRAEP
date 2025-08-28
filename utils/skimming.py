@@ -364,8 +364,7 @@ class ConfigurableSkimmingManager:
         with uproot.open(f"{input_path}:{tree}") as f:
             total_events = f.num_entries
 
-        logger.info("========================================")
-        logger.info(f"📂 Preprocessing file: {input_path} with {total_events:,} events")
+        logger.info(f"📂 Preprocessing file: \n {input_path}\n with {total_events:,} events")
 
         # Get common parameters
         step_size = self.get_chunk_size()
@@ -630,7 +629,6 @@ def process_fileset_with_skimming(config, fileset, cache_dir="/tmp/gradients_ana
         for idx, (file_path, tree) in enumerate(content["files"].items()):
             # Run skimming if enabled
             if config.general.run_skimming:
-                logger.info(f"🔍 Skimming input file: {file_path}")
                 skimming_manager.skim(
                     input_path=file_path,
                     tree=tree,

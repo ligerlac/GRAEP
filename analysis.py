@@ -15,7 +15,7 @@ from analysis.diff import DifferentiableAnalysis
 from analysis.nondiff import NonDiffAnalysis
 from user.configuration import config as ZprimeConfig
 from utils.datasets import ConfigurableDatasetManager
-from utils.logging import ColoredFormatter, _banner
+from utils.logging import setup_logging, log_banner
 from utils.schema import Config, load_config_with_restricted_cli
 from utils.metadata_extractor import NanoAODMetadataGenerator
 from utils.skimming import process_fileset_with_skimming
@@ -23,13 +23,7 @@ from utils.skimming import process_fileset_with_skimming
 # -----------------------------
 # Logging Configuration
 # -----------------------------
-root_logger = logging.getLogger()
-root_logger.setLevel(logging.INFO)
-handler = logging.StreamHandler(sys.stdout)
-handler.setFormatter(ColoredFormatter())
-if root_logger.hasHandlers():
-    root_logger.handlers.clear()
-root_logger.addHandler(handler)
+setup_logging()
 
 logger = logging.getLogger("AnalysisDriver")
 logging.getLogger("jax._src.xla_bridge").setLevel(logging.ERROR)
@@ -57,27 +51,27 @@ def main():
     generator = NanoAODMetadataGenerator(dataset_manager=dataset_manager)
     generator.run(generate_metadata=config.general.run_metadata_generation)
     fileset = generator.fileset
-    print(fileset)
+
     # Process fileset with skimming and get processed events
-    logger.info(_banner("SKIMMING AND CACHING DATA"))
+    log_banner("SKIMMING AND CACHING DATA")
     processed_datasets = process_fileset_with_skimming(config, fileset)
 
     analysis_mode = config.general.analysis
     if analysis_mode == "skip":
-        logger.info(_banner("Skim-Only Mode: Skimming Complete"))
+        log_banner("Skim-Only Mode: Skimming Complete")
         logger.info("✅ Skimming completed successfully. Analysis skipped as requested.")
         logger.info(f"Skimmed files are available in the configured output directories.")
         return
     elif analysis_mode == "nondiff":
-        logger.info(_banner("Running Non-Differentiable Analysis"))
+        log_banner("Running Non-Differentiable Analysis")
         nondiff_analysis = NonDiffAnalysis(config, processed_datasets)
         nondiff_analysis.run_analysis_chain()
     elif analysis_mode == "diff":
-        logger.info(_banner("Running Differentiable Analysis"))
+        log_banner("Running Differentiable Analysis")
         diff_analysis = DifferentiableAnalysis(config, processed_datasets)
         diff_analysis.run_analysis_optimisation()
     else:  # "both"
-        logger.info(_banner("Running both Non-Differentiable and Differentiable Analysis"))
+        log_banner("Running both Non-Differentiable and Differentiable Analysis")
         # Non-differentiable analysis
         logger.info("Running Non-Differentiable Analysis")
         nondiff_analysis = NonDiffAnalysis(config, processed_datasets)
