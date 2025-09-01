@@ -18,7 +18,8 @@ from utils.datasets import ConfigurableDatasetManager
 from utils.logging import setup_logging, log_banner
 from utils.schema import Config, load_config_with_restricted_cli
 from utils.metadata_extractor import NanoAODMetadataGenerator
-from utils.skimming import process_fileset_with_skimming
+# from utils.skimming import process_fileset_with_skimming
+from utils.workitem_skimming import process_workitems_with_skimming
 
 # -----------------------------
 # Logging Configuration
@@ -52,9 +53,21 @@ def main():
     generator.run(generate_metadata=config.general.run_metadata_generation)
     fileset = generator.fileset
 
-    # Process fileset with skimming and get processed events
-    log_banner("SKIMMING AND CACHING DATA")
-    processed_datasets = process_fileset_with_skimming(config, fileset)
+    # Process workitems with skimming and get processed events
+    # processed_datasets = process_fileset_with_skimming(config, fileset)
+
+    log_banner("WORKITEM-BASED SKIMMING AND PROCESSING")
+
+    # Get workitems from the metadata generator
+    workitems = generator.workitems
+    if not workitems:
+        logger.error("No workitems available. Please ensure metadata generation completed successfully.")
+        sys.exit(1)
+
+    logger.info(f"Processing {len(workitems)} workitems")
+
+    # Process workitems using workitem-based approach
+    processed_datasets = process_workitems_with_skimming(workitems, config, fileset, generator.nanoaods_summary)
 
     analysis_mode = config.general.analysis
     if analysis_mode == "skip":

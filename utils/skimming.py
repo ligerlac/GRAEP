@@ -62,102 +62,6 @@ class ConfigurableSkimmingManager:
             raise ValueError("Either nanoaod_selection or uproot_cut_string must be provided")
 
 
-    def get_uproot_cut_string(self) -> Optional[str]:
-        """
-        Get the uproot cut string.
-
-        Returns
-        -------
-        str or None
-            Cut string for uproot mode, or None if not configured
-        """
-        return self.config.uproot_cut_string
-
-    def apply_nanoaod_selection(
-        self,
-        events: ak.Array,
-        function_args_getter: callable
-    ) -> ak.Array:
-        """
-        Apply NanoAOD selection using the configured functor.
-
-        Parameters
-        ----------
-        events : ak.Arrayƒ√
-            NanoAOD events array
-        function_args_getter : callable
-            Function to get arguments for the selection function
-            (typically from analysis base class)
-
-        Returns
-        -------
-        ak.Array
-            Boolean mask for selected events
-        """
-        if not self.config.nanoaod_selection:
-            raise ValueError("No NanoAOD selection configured")
-
-        # Get the selection function and its arguments
-        selection_func = self.config.nanoaod_selection.function
-        selection_use = self.config.nanoaod_selection.use
-
-        # Get function arguments (this delegates to the analysis class method)
-        selection_args = function_args_getter(
-            selection_use,
-            events,
-            function_name=selection_func.__name__
-        )
-
-        # Apply the selection function
-        packed_selection = selection_func(*selection_args)
-
-        if not isinstance(packed_selection, PackedSelection):
-            raise ValueError(f"Selection function must return PackedSelection, got {type(packed_selection)}")
-
-        # Get the final selection mask
-        # Assume the last selection name is the final one, or use 'all' if available
-        selection_names = packed_selection.names
-        if selection_names:
-            final_selection = selection_names[-1]
-            mask = ak.Array(packed_selection.all(final_selection))
-        else:
-            # Fallback: create a mask that selects all events
-            mask = ak.ones_like(events.run, dtype=bool)
-
-        return mask
-
-    def get_chunk_size(self) -> int:
-        """
-        Get the configured chunk size for processing.
-
-        Returns
-        -------
-        int
-            Number of events to process per chunk
-        """
-        return self.config.chunk_size
-
-    def get_tree_name(self) -> str:
-        """
-        Get the configured tree name.
-
-        Returns
-        -------
-        str
-            ROOT tree name
-        """
-        return self.config.tree_name
-
-    def get_output_dir(self) -> str:
-        """
-        Get the configured output directory.
-
-        Returns
-        -------
-        str
-            Output directory path
-        """
-        return self.config.output_dir
 
     def get_dataset_output_dir(self, dataset: str, file_idx: int) -> Path:
         """
@@ -198,27 +102,6 @@ class ConfigurableSkimmingManager:
         # Structure: {output_dir}/{dataset}/file__{idx}/part_*.root
         return f"{self.config.output_dir}/{dataset}/file__{file_idx}/part_*.root"
 
-    def supports_nanoaod_mode(self) -> bool:
-        """
-        Check if NanoAOD mode is supported.
-
-        Returns
-        -------
-        bool
-            True if NanoAOD selection is configured
-        """
-        return self.config.nanoaod_selection is not None
-
-    def supports_uproot_mode(self) -> bool:
-        """
-        Check if uproot mode is supported.
-
-        Returns
-        -------
-        bool
-            True if uproot cut string is configured
-        """
-        return self.config.uproot_cut_string is not None
 
 
     def discover_skimmed_files(self, dataset: str, file_idx: int) -> list[str]:
@@ -247,35 +130,6 @@ class ConfigurableSkimmingManager:
         logger.info(f"Discovered {len(files_with_tree)} skimmed files for {dataset}/file__{file_idx}")
         return files_with_tree
 
-    def validate_user_skimmed_files(self, user_files: dict[str, list[str]]) -> bool:
-        """
-        Validate that user-provided skimmed files follow the expected structure.
-
-        Parameters
-        ----------
-        user_files : dict[str, list[str]]
-            Dictionary mapping dataset names to lists of file paths
-
-        Returns
-        -------
-        bool
-            True if files are valid and accessible
-        """
-        for dataset, files in user_files.items():
-            for file_path in files:
-                # Remove tree name if present
-                clean_path = file_path.split(':')[0] if ':' in file_path else file_path
-
-                if not os.path.exists(clean_path):
-                    logger.error(f"Skimmed file not found: {clean_path}")
-                    return False
-
-                # Check if it's a ROOT file
-                if not clean_path.endswith('.root'):
-                    logger.warning(f"File {clean_path} does not appear to be a ROOT file")
-
-        logger.info(f"Validated {sum(len(files) for files in user_files.values())} user-provided skimmed files")
-        return True
 
     def build_branches_to_keep(self, config, mode="uproot", is_mc=False):
         """
@@ -368,8 +222,8 @@ class ConfigurableSkimmingManager:
         logger.info(f"📂 Preprocessing file: \n {input_path}\n with {total_events:,} events")
 
         # Get common parameters
-        step_size = self.get_chunk_size()
-        output_tree_name = self.get_tree_name()
+        step_size = self.config.chunk_size
+        output_tree_name = self.config.tree_name
 
         # Dispatch to processor-specific implementation
         if processor == "dask":
@@ -482,7 +336,7 @@ class ConfigurableSkimmingManager:
         """
         Uproot-specific skimming implementation.
         """
-        cut_str = self.get_uproot_cut_string()
+        cut_str = self.config.uproot_cut_string
         branches = self.build_branches_to_keep(configuration, mode="uproot", is_mc=is_mc)
 
         iterable = uproot.iterate(
@@ -558,7 +412,34 @@ def create_default_skimming_config(output_dir: str = "skimmed/") -> SkimmingConf
     SkimmingConfig
         Default skimming configuration
     """
-    from user.cuts import default_skim_selection  # Import here to avoid circular imports
+    def default_skim_selection(muons, jets, puppimet, hlt):
+        """
+        Default skimming selection function.
+
+        Applies basic trigger, muon, and MET requirements for skimming.
+        This matches the hardcoded behavior from the original preprocessing.
+        """
+        from coffea.analysis_tools import PackedSelection
+        selection = PackedSelection()
+
+        # Muon selection (matching hardcoded behavior)
+        mu_sel = (
+            (muons.pt > 55)
+            & (abs(muons.eta) < 2.4)
+            & muons.tightId
+            & (muons.miniIsoId > 1)
+        )
+        muon_count = ak.sum(mu_sel, axis=1)
+
+        # Individual cuts
+        selection.add("trigger", hlt.TkMu50)
+        selection.add("exactly_1_good_muon", muon_count == 1)
+        selection.add("met_cut", puppimet.pt > 50)
+
+        # Combined skimming selection
+        selection.add("skim", selection.all("trigger", "exactly_1_good_muon", "met_cut"))
+
+        return selection
 
     # Default uproot cut string matching current hardcoded behavior
     default_uproot_cut = "HLT_TkMu50*(PuppiMET_pt>50)"
@@ -619,9 +500,9 @@ def process_fileset_with_skimming(config, fileset, cache_dir="/tmp/gradients_ana
         skimming_manager = ConfigurableSkimmingManager(config.preprocess.skimming)
 
         # Log which mode is being used
-        if skimming_manager.supports_nanoaod_mode():
+        if skimming_manager.config.nanoaod_selection:
             logger.debug(f"Using NanoAOD/DAK skimming mode for {dataset}")
-        elif skimming_manager.supports_uproot_mode():
+        elif skimming_manager.config.uproot_cut_string:
             logger.debug(f"Using uproot skimming mode for {dataset}")
 
         logger.info(f"🚀 Processing dataset: {dataset}")
@@ -657,7 +538,6 @@ def process_fileset_with_skimming(config, fileset, cache_dir="/tmp/gradients_ana
                         skimmed_file, schemaclass=NanoAODSchema,
                         mode="eager",
                     ).events()
-
                     # Cache the events if not reading from cache
                     if not config.general.read_from_cache:
                         os.makedirs(cache_dir, exist_ok=True)
@@ -665,7 +545,6 @@ def process_fileset_with_skimming(config, fileset, cache_dir="/tmp/gradients_ana
                             cloudpickle.dump(events, f)
 
                 processed_events.append((events, metadata.copy()))
-
         processed_datasets[dataset] = processed_events
 
     return processed_datasets

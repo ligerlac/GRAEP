@@ -96,7 +96,7 @@ class ChannelData(eqx.Module):
     - Bin edges are stored for visualization/rebinning purposes
     """
 
-    name: str = eqx.static_field()  # Treated as constant by JAX
+    name: str = eqx.field(static=True)  # Treated as constant by JAX
     observed_counts: jnp.ndarray
     templates: Dict[str, jnp.ndarray]
     bin_edges: jnp.ndarray

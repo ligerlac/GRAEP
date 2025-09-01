@@ -384,6 +384,7 @@ def Zprime_softcuts_jax_workshop(
     # ---------------------
     # Combine cut weights multiplicatively (AND logic)
     # ---------------------
+    print(cuts)
     cut_values = jnp.stack([v for k, v in cuts.items()])
     selection_weight = jnp.prod(cut_values, axis=0)
     return selection_weight

@@ -251,7 +251,7 @@ mva_config = [
     {
         "name": "wjets_vs_ttbar_nn",
         "use_in_diff": True,
-        "epochs": 1000,
+        "epochs": 2,
         "framework": "jax",  # keras/tf/... if TF need more info
         # (e.g. Model: Sequential layers: Dense)
         "validation_split": 0.2,

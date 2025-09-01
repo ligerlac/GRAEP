@@ -61,6 +61,7 @@ logging.getLogger("jax._src.xla_bridge").setLevel(logging.ERROR)
 NanoAODSchema.warn_missing_crossrefs = False
 warnings.filterwarnings("ignore", category=FutureWarning, module="coffea.*")
 
+jax.config.update("jax_enable_x64", True)
 
 # -----------------------------------------------------------------------------
 # Utility functions
@@ -786,14 +787,6 @@ class DifferentiableAnalysis(Analysis):
         general_cfg = self.config.general
         general_data = [
             ["Output Directory", general_cfg.output_dir],
-            [
-                "Max Files per Sample",
-                (
-                    "All"
-                    if general_cfg.max_files == -1
-                    else general_cfg.max_files
-                ),
-            ],
             ["Run Skimming", general_cfg.run_skimming],
             ["Run MVA Pre-training", general_cfg.run_mva_training],
             ["Run Systematics", general_cfg.run_systematics],
@@ -1040,9 +1033,9 @@ class DifferentiableAnalysis(Analysis):
         for channel in self.channels:
 
             channel_name = channel.name
-
+            logger.debug(f"Processing channel {channel_name} for {process}")
             if not channel.use_in_diff:
-                logger.warning(
+                logger.debug(
                     f"Skipping channel {channel_name} in diff analysis"
                 )
                 continue
@@ -1051,7 +1044,7 @@ class DifferentiableAnalysis(Analysis):
             if (
                 req := self.config.general.channels
             ) and channel_name not in req:
-                logger.warning(
+                logger.debug(
                     f"Skipping channel {channel_name} (not in requested channels)"
                 )
                 continue
@@ -1397,6 +1390,7 @@ class DifferentiableAnalysis(Analysis):
             return histograms
 
         for channel in self.channels:
+            logger.info(f"Processing channel {channel.name}...")
             # Skip channels not participating in differentiable analysis
             if not channel.use_in_diff:
                 warning_logger(
@@ -1466,6 +1460,7 @@ class DifferentiableAnalysis(Analysis):
                 logger.debug(
                     f"Applied {event_syst.name} {direction} correction"
                 )
+
 
             weights = jnp.asarray(ak.to_jax(weights))
 
@@ -1709,7 +1704,7 @@ class DifferentiableAnalysis(Analysis):
         """
         info_logger = logger.info if not silent else logger.debug
         info_logger(
-            _banner(
+            log_banner(
                 "📊 Starting histogram collection and p-value calculation..."
             )
         )
@@ -1839,15 +1834,6 @@ class DifferentiableAnalysis(Analysis):
 
             # Loop over events in the processed dataset
             for idx, (events, file_metadata) in enumerate(events_list):
-                # Honour file limit if set in configuration
-                if (
-                    config.general.max_files != -1
-                    and idx >= config.general.max_files
-                ):
-                    logger.info(
-                        f"Reached max files limit ({config.general.max_files})"
-                    )
-                    break
 
                 # Count skimmed events
                 dataset_stats["Skimmed"] += len(events)
@@ -2133,7 +2119,7 @@ class DifferentiableAnalysis(Analysis):
             # 3. Run initial traced analysis to compute KDE histograms
             # ---------------------------------------------------------------------
             logger.info(
-                _banner("Running initial p-value computation (traced)")
+                log_banner("Running initial p-value computation (traced)")
             )
             initial_pvalue, (mle_parameters, mle_parameters_uncertainties) = self._run_traced_analysis_chain(
                 all_parameters, processed_data
@@ -2165,7 +2151,7 @@ class DifferentiableAnalysis(Analysis):
             # Compute gradients to seed optimiser
             # ----------------------------------------------------------------------
             logger.info(
-                _banner("Computing parameter gradients before optimisation")
+                log_banner("Computing parameter gradients before optimisation")
             )
 
             (_, _), gradients = jax.value_and_grad(
@@ -2349,7 +2335,7 @@ class DifferentiableAnalysis(Analysis):
             # Prepare post-optimisation histograms
             # ----------------------------------------------------------------------
             logger.info(
-                _banner(
+                log_banner(
                     "Running analysis chain with optimised parameters (untraced)"
                 )
             )
@@ -2357,7 +2343,7 @@ class DifferentiableAnalysis(Analysis):
             _ = self._run_traced_analysis_chain(final_params, processed_data)
 
             logger.info(
-                _banner("Re-computing NN scores/process for MVA models")
+                log_banner("Re-computing NN scores/process for MVA models")
             )
 
             # Compute MVA scores with optimised parameters

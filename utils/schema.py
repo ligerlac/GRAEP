@@ -340,50 +340,40 @@ class DatasetManagerConfig(SubscriptableModel):
 # Skimming configuration
 # ------------------------
 class SkimmingConfig(SubscriptableModel):
-    """Configuration for skimming selections and output"""
-    # For NanoAOD/DAK mode - uses functor pattern
-    nanoaod_selection: Annotated[
-        Optional[FunctorConfig],
-        Field(default=None, description="Selection function for NanoAOD/DAK preprocessing mode")
+    """Configuration for workitem-based skimming selections and output"""
+
+    # Selection function - required for workitem-based skimming
+    selection_function: Annotated[
+        Callable,
+        Field(description="Selection function that returns a PackedSelection object")
     ]
 
-    # For pure uproot mode - string-based cuts
-    uproot_cut_string: Annotated[
-        Optional[str],
-        Field(default=None, description="Cut string for pure uproot preprocessing mode")
+    # Selection inputs - required to specify what the function needs
+    selection_use: Annotated[
+        List[ObjVar],
+        Field(description="List of (object, variable) tuples specifying inputs for the selection function")
     ]
 
     # Output directory configuration
     output_dir: Annotated[
-        Optional[str],
+        str,
         Field(
-            default=None,
             description="Base directory for skimmed files. When run_skimming=True, this is where "
                        "skimmed files will be written. When run_skimming=False, this is where "
                        "existing skimmed files will be read from. Files follow the fixed structure: "
-                       "{output_dir}/{dataset}/file__{idx}/part_X.root where X is the chunk number. "
-                       "If None, uses {general.output_dir}/skimmed/"
+                       "{output_dir}/{dataset}/file__{idx}/part_X.root where X is the chunk number."
         )
     ]
 
     # File handling configuration
     chunk_size: Annotated[
         int,
-        Field(default=100_000, description="Number of events to process per chunk")
+        Field(default=100_000, description="Number of events to process per chunk (used for configuration compatibility)")
     ]
     tree_name: Annotated[
         str,
         Field(default="Events", description="ROOT tree name for input and output files")
     ]
-
-    @model_validator(mode="after")
-    def validate_selection_config(self) -> "SkimmingConfig":
-        """Validate that at least one selection method is provided."""
-        if not self.nanoaod_selection and not self.uproot_cut_string:
-            raise ValueError(
-                "Either 'nanoaod_selection' or 'uproot_cut_string' must be provided for skimming."
-            )
-        return self
 
 # ------------------------
 # Preprocessing configuration
@@ -445,11 +435,6 @@ class PreprocessConfig(SubscriptableModel):
                     raise ValueError(
                         f"'{br}' is not present in branches for '{obj}'."
                     )
-
-        # Create default skimming configuration if none provided
-        if self.skimming is None:
-            from utils.skimming import create_default_skimming_config
-            self.skimming = create_default_skimming_config()
 
         return self
 
@@ -1253,11 +1238,11 @@ class Config(SubscriptableModel):
                 "Skimming is enabled but no preprocess configuration provided."
             )
 
-        # Handle skimming output directory defaults
-        if self.preprocess and self.preprocess.skimming:
-            # Set default skimming output directory if not specified
-            if self.preprocess.skimming.output_dir is None:
-                self.preprocess.skimming.output_dir = f"{self.general.output_dir}/skimmed"
+        if self.general.run_skimming and (not self.preprocess.skimming):
+            raise ValueError(
+                "Skimming is enabled but no skimming configuration provided. "
+                "Please provide a SkimmingConfig with selection_function, selection_use, and output_dir."
+            )
 
         if self.statistics is not None:
             if (

@@ -7,7 +7,9 @@ This module contains all skimming-related configuration including:
 - Skimming configuration parameters
 """
 
-from user.cuts import default_skim_selection
+import awkward as ak
+from coffea.analysis_tools import PackedSelection
+
 
 # ==============================================================================
 #  Dataset Configuration
@@ -71,20 +73,48 @@ datasets_config = [
 dataset_manager_config = {
     "datasets": datasets_config,
     "metadata_output_dir": "outputs/test_metadata/skimmed/nanoaods_jsons/",
-    "max_files": 1  # No limit by default
+    "max_files": None  # No limit by default
 }
 
 # ==============================================================================
 #  Skimming Configuration
 # ==============================================================================
 
+
+def default_skim_selection(muons, puppimet, hlt):
+    """
+    Default skimming selection function.
+
+    Applies basic trigger, muon, and MET requirements for skimming.
+    This matches the hardcoded behavior from the original preprocessing.
+    """
+
+    selection = PackedSelection()
+
+    # Muon selection (matching hardcoded behavior)
+    mu_sel = (
+        (muons.pt > 55)
+        & (abs(muons.eta) < 2.4)
+        & muons.tightId
+        & (muons.miniIsoId > 1)
+    )
+    muon_count = ak.sum(mu_sel, axis=1)
+
+    # Individual cuts
+    selection.add("trigger", hlt.TkMu50)
+    selection.add("exactly_1_good_muon", muon_count == 1)
+    selection.add("met_cut", puppimet.pt > 50)
+
+    # Combined skimming selection
+    selection.add("skim", selection.all("trigger", "exactly_1_good_muon", "met_cut"))
+
+    return selection
+
+
 skimming_config = {
-    "nanoaod_selection": {
-        "function": default_skim_selection,
-        "use": [("Muon", None), ("Jet", None), ("PuppiMET", None), ("HLT", None)]
-    },
-    "uproot_cut_string": "HLT_TkMu50*(PuppiMET_pt>50)",
-    "output_dir": None,  # Will default to {general.output_dir}/skimmed/
+    "selection_function": default_skim_selection,
+    "selection_use": [("Muon", None), ("PuppiMET", None), ("HLT", None)],
+    "output_dir": "skimmed_test/",
     "chunk_size": 100_000,
     "tree_name": "Events",
 }
