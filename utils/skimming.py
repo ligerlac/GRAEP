@@ -523,30 +523,30 @@ def process_fileset_with_skimming(config, fileset, cache_dir="/tmp/gradients_ana
             skimmed_files = skimming_manager.discover_skimmed_files(dataset, idx)
             total_per_dataset += len(skimmed_files)
 
-            # # Process each skimmed file
-            # for skimmed_file in skimmed_files:
-            #     cache_key = hashlib.md5(skimmed_file.encode()).hexdigest()
-            #     cache_file = os.path.join(cache_dir, f"{dataset}__{cache_key}.pkl")
+            # Process each skimmed file
+            for skimmed_file in skimmed_files:
+                cache_key = hashlib.md5(skimmed_file.encode()).hexdigest()
+                cache_file = os.path.join(cache_dir, f"{dataset}__{cache_key}.pkl")
 
-            #     # Handle caching: process and cache, read from cache, or skip
-            #     if config.general.read_from_cache and os.path.exists(cache_file):
-            #         logger.info(f"Reading cached events for {skimmed_file}")
-            #         with open(cache_file, "rb") as f:
-            #             events = cloudpickle.load(f)
-            #     else:
-            #         logger.info(f"Processing {skimmed_file}")
-            #         events = NanoEventsFactory.from_root(
-            #             skimmed_file, schemaclass=NanoAODSchema,
-            #             mode="eager",
-            #         ).events()
-            #         # Cache the events if not reading from cache
-            #         if not config.general.read_from_cache:
-            #             os.makedirs(cache_dir, exist_ok=True)
-            #             with open(cache_file, "wb") as f:
-            #                 cloudpickle.dump(events, f)
+                # Handle caching: process and cache, read from cache, or skip
+                if config.general.read_from_cache and os.path.exists(cache_file):
+                    logger.info(f"Reading cached events for {skimmed_file}")
+                    with open(cache_file, "rb") as f:
+                        events = cloudpickle.load(f)
+                else:
+                    logger.info(f"Processing {skimmed_file}")
+                    events = NanoEventsFactory.from_root(
+                        skimmed_file, schemaclass=NanoAODSchema,
+                        mode="eager",
+                    ).events()
+                    # Cache the events if not reading from cache
+                    if not config.general.read_from_cache:
+                        os.makedirs(cache_dir, exist_ok=True)
+                        with open(cache_file, "wb") as f:
+                            cloudpickle.dump(events, f)
 
-            #     processed_events.append((events, metadata.copy()))
-        #processed_datasets[dataset] = processed_events
-        print(f"Dataset {dataset} has {total_per_dataset} skimmed files")
-    exit(1)
+                processed_events.append((events, metadata.copy()))
+        processed_datasets[dataset] = processed_events
+        logger.info(f"Dataset {dataset} has {total_per_dataset} skimmed files")
+
     return processed_datasets

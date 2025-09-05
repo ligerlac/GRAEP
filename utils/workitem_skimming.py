@@ -13,19 +13,21 @@ The workflow follows the pattern:
 5. Save outputs using the same patterns as existing code
 """
 
+import hashlib
 import logging
 import os
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Set, Union
 from collections import defaultdict
 
+import awkward as ak
+import cloudpickle
 import dask.bag
 import hist
 import uproot
 from coffea.nanoevents import NanoAODSchema, NanoEventsFactory
 from coffea.processor.executor import WorkItem
 from tabulate import tabulate
-import awkward as ak
 
 from utils.schema import SkimmingConfig
 from utils.tools import get_function_arguments
@@ -601,11 +603,12 @@ def process_workitems_with_skimming(workitems: List[WorkItem], config: Any,
                                    nanoaods_summary: Optional[Dict[str, Any]] = None,
                                    cache_dir: str = "/tmp/gradients_analysis/") -> Dict[str, Any]:
     """
-    Process workitems using the workitem-based skimming approach.
+    Process workitems using the workitem-based skimming approach with event merging and caching.
 
     This function serves as the main entry point for the workitem-based preprocessing workflow.
-    It processes workitems (if skimming is enabled) and then discovers and reads from the
-    saved files for analysis.
+    It processes workitems (if skimming is enabled) and then discovers, merges, and caches events
+    from the saved files for analysis. Events from multiple output files per dataset are
+    automatically merged into a single NanoEvents object for improved performance and memory efficiency.
 
     Parameters
     ----------
@@ -618,14 +621,15 @@ def process_workitems_with_skimming(workitems: List[WorkItem], config: Any,
     nanoaods_summary : Optional[Dict[str, Any]], default None
         NanoAODs summary containing event counts per dataset for nevts metadata
     cache_dir : str, default "/tmp/gradients_analysis/"
-        Directory for caching (maintained for compatibility, not used in workitem processing)
+        Directory for caching merged events. Cached files use the pattern:
+        {cache_dir}/{dataset}__{hash}.pkl where hash is based on input file paths
 
     Returns
     -------
     Dict[str, List[Tuple[Any, Dict[str, Any]]]]
-        Dictionary mapping dataset names to lists of (events, metadata) tuples.
+        Dictionary mapping dataset names to lists containing a single (events, metadata) tuple.
+        Events are merged NanoEvents objects from all output files for the dataset.
         Each metadata dictionary contains dataset, process, variation, and xsec information.
-        Events are loaded NanoEvents objects ready for analysis.
     """
     logger.info(f"Starting workitem-based preprocessing with {len(workitems)} workitems")
 
@@ -694,6 +698,26 @@ def process_workitems_with_skimming(workitems: List[WorkItem], config: Any,
             if nevts == 0:
                 logger.warning(f"Could not find nevts for dataset {dataset}, using 0")
 
+            # Create cache key for the merged dataset
+            # Use sorted file paths to ensure consistent cache key
+            sorted_files = sorted(output_files)
+            cache_input = f"{dataset}::{':'.join(sorted_files)}"
+            cache_key = hashlib.md5(cache_input.encode()).hexdigest()
+            cache_file = os.path.join(cache_dir, f"{dataset}__{cache_key}.pkl")
+
+            # Check if we should read from cache
+            if config.general.read_from_cache and os.path.exists(cache_file):
+                logger.info(f"Reading cached merged events for dataset {dataset}")
+                try:
+                    with open(cache_file, "rb") as f:
+                        merged_events = cloudpickle.load(f)
+                    logger.info(f"Loaded {len(merged_events)} cached events for dataset {dataset}")
+                    processed_datasets[dataset] = [(merged_events, metadata.copy())]
+                    continue  # Skip to next dataset
+                except Exception as e:
+                    logger.error(f"Failed to load cached events for {dataset}: {e}")
+                    # Fall back to loading from files
+
             # Load and merge events from all discovered files
             all_events = []
             total_events_loaded = 0
@@ -723,6 +747,17 @@ def process_workitems_with_skimming(workitems: List[WorkItem], config: Any,
                         merged_events = ak.concatenate(all_events, axis=0)
 
                     logger.info(f"Merged {len(output_files)} files into {len(merged_events)} total events for dataset {dataset}")
+
+                    # Cache the merged events if not reading from cache
+                    #if not config.general.read_from_cache:
+                    try:
+                        os.makedirs(cache_dir, exist_ok=True)
+                        with open(cache_file, "wb") as f:
+                            cloudpickle.dump(merged_events, f)
+                        logger.info(f"Cached merged events for dataset {dataset}")
+                    except Exception as e:
+                        logger.warning(f"Failed to cache events for {dataset}: {e}")
+
                     processed_datasets[dataset] = [(merged_events, metadata.copy())]
 
                 except Exception as e:
@@ -738,5 +773,3 @@ def process_workitems_with_skimming(workitems: List[WorkItem], config: Any,
             processed_datasets[dataset] = []
 
     return processed_datasets
-'''
-'''
