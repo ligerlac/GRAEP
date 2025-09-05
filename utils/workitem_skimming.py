@@ -694,8 +694,10 @@ def process_workitems_with_skimming(workitems: List[WorkItem], config: Any,
             if nevts == 0:
                 logger.warning(f"Could not find nevts for dataset {dataset}, using 0")
 
-            # Load events from each discovered file (like the old process_fileset_with_skimming)
-            processed_events = []
+            # Load and merge events from all discovered files
+            all_events = []
+            total_events_loaded = 0
+
             for file_path in output_files:
                 try:
                     # Load events using NanoEventsFactory (same as old function)
@@ -703,17 +705,38 @@ def process_workitems_with_skimming(workitems: List[WorkItem], config: Any,
                         file_path, schemaclass=NanoAODSchema, mode="eager"
                     ).events()
                     events = ak.materialize(events)  # Ensure data is loaded into memory
-                    print(events[1])
-                    processed_events.append((events, metadata.copy()))
-                    logger.debug(f"Loaded events from {file_path}")
+                    all_events.append(events)
+                    total_events_loaded += len(events)
+                    logger.debug(f"Loaded {len(events)} events from {file_path}")
                 except Exception as e:
                     logger.error(f"Failed to load events from {file_path}: {e}")
                     continue
 
-            print(processed_events)
-            processed_datasets[dataset] = processed_events
+            # Merge all events into a single array if we have any events
+            if all_events:
+                try:
+                    if len(all_events) == 1:
+                        # Single file, no need to concatenate
+                        merged_events = all_events[0]
+                    else:
+                        # Multiple files, concatenate them
+                        merged_events = ak.concatenate(all_events, axis=0)
+
+                    logger.info(f"Merged {len(output_files)} files into {len(merged_events)} total events for dataset {dataset}")
+                    processed_datasets[dataset] = [(merged_events, metadata.copy())]
+
+                except Exception as e:
+                    logger.error(f"Failed to merge events for dataset {dataset}: {e}")
+                    # Fallback to individual events if merging fails
+                    processed_events = []
+                    for i, events in enumerate(all_events):
+                        processed_events.append((events, metadata.copy()))
+                        logger.debug(f"Added individual events chunk {i} as fallback")
+                    processed_datasets[dataset] = processed_events
         else:
             logger.warning(f"No output files found for dataset {dataset}")
             processed_datasets[dataset] = []
 
     return processed_datasets
+'''
+'''

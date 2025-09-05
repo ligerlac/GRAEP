@@ -102,11 +102,11 @@ def default_skim_selection(muons, puppimet, hlt):
 
     # Individual cuts
     selection.add("trigger", hlt.TkMu50)
-    selection.add("exactly_1_good_muon", muon_count == 1)
+    #selection.add("exactly_1_good_muon", muon_count == 1)
     selection.add("met_cut", puppimet.pt > 50)
 
     # Combined skimming selection
-    selection.add("skim", selection.all("trigger", "exactly_1_good_muon", "met_cut"))
+    selection.add("skim", selection.all("trigger", "met_cut"))
 
     return selection
 

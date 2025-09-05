@@ -1060,7 +1060,7 @@ class DifferentiableAnalysis(Analysis):
             # Count number of events passing selection
             n_events = ak.sum(mask)
             if n_events == 0:
-                logger.warning(
+                logger.debug(
                     f"No events left in {channel_name} for {process} after selection"
                 )
                 continue
@@ -1479,6 +1479,8 @@ class DifferentiableAnalysis(Analysis):
                     f"Histogramming: {process} | {variation} | {channel_name} | "
                     f"{obs_name} | Events (Raw): {nevents:,} | "
                     f"Events(Weighted): {ak.sum(weights):,.2f}"
+                    f"{obs_name} | Events (Raw): {nevents:,} | "
+                    f"Events(Weighted): {ak.sum(weights):.2f}"
                 )
 
                 # Evaluate observable function
@@ -1563,7 +1565,7 @@ class DifferentiableAnalysis(Analysis):
         all_histograms = defaultdict(lambda: defaultdict(dict))
         process = metadata["process"]
         xsec = metadata["xsec"]
-        n_gen = metadata["nevts"]
+        n_gen = 1.0 #metadata["nevts"]
         lumi = self.config["general"]["lumi"]
 
         # Calculate cross-section weight for MC (unit weight for data)
@@ -1822,7 +1824,10 @@ class DifferentiableAnalysis(Analysis):
                 continue
             _, metadata = events_list[0]
             process_name = metadata["process"]
-
+            logger.info(
+                f"Processing dataset: {dataset} (process: {process_name}, "
+                f"files: {len(events_list)})"
+            )
             # Skip datasets not explicitly requested in config
             if (req := config.general.processes) and process_name not in req:
                 logger.info(

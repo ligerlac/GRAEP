@@ -55,7 +55,7 @@ def setup_logging(level: str = "INFO") -> None:
     })
 
     console = Console(theme=custom_theme)
-    handler = RichHandler(console=console, rich_tracebacks=True, show_time=False, markup=False) #, level_styles=level_styles)
+    handler = RichHandler(console=console, rich_tracebacks=True, show_time=True, markup=False) #, level_styles=level_styles)
     handler.setFormatter(
         logging.Formatter("%(message)s")
     )

@@ -379,12 +379,11 @@ def Zprime_softcuts_jax_workshop(
         "lep_ht_cut": jax.nn.sigmoid(
             (lep_ht - params["lep_ht_threshold"]) / 5.0
         ),
-        "nn_cut": jax.nn.sigmoid((nn_score - 0.05) * 10.0),
+        #"nn_cut": jax.nn.sigmoid((nn_score - 0.05) * 10.0),
     }
     # ---------------------
     # Combine cut weights multiplicatively (AND logic)
     # ---------------------
-    print(cuts)
     cut_values = jnp.stack([v for k, v in cuts.items()])
     selection_weight = jnp.prod(cut_values, axis=0)
     return selection_weight
