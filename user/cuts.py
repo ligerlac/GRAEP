@@ -379,7 +379,7 @@ def Zprime_softcuts_jax_workshop(
         "lep_ht_cut": jax.nn.sigmoid(
             (lep_ht - params["lep_ht_threshold"]) / 5.0
         ),
-        #"nn_cut": jax.nn.sigmoid((nn_score - 0.05) * 10.0),
+        "nn_cut": jax.nn.sigmoid((nn_score - 0.05) * 10.0),
     }
     # ---------------------
     # Combine cut weights multiplicatively (AND logic)
@@ -582,64 +582,6 @@ def Zprime_softcuts_CR2(
     selections.add("chi2_cut", ttbar_reco.chi2 < 30.0)
     selections.add(
         "nn_score_range", (mva.nn_score > 0.0) & (mva.nn_score < 0.5)
-    )
-
-    return selections
-
-
-#====================
-# Skimming selection for preprocessing
-#====================
-def default_skim_selection(
-    muons: ak.Array,
-    jets: ak.Array,
-    met: ak.Array,
-    hlt: ak.Array
-) -> PackedSelection:
-    """
-    Default skimming selection matching the hardcoded behavior in utils/preproc.py.
-
-    This replicates the current hardcoded selections:
-    - Exactly 1 muon with pT > 55 GeV, |eta| < 2.4, tight ID, mini-isolation
-    - HLT_TkMu50 trigger
-    - MET > 50 GeV
-
-    Parameters
-    ----------
-    muons : ak.Array
-        Muon collection
-    jets : ak.Array
-        Jet collection (not used in this selection)
-    met : ak.Array
-        Missing transverse energy
-    hlt : ak.Array
-        HLT trigger collection
-
-    Returns
-    -------
-    PackedSelection
-        Selection object with skimming cuts
-    """
-    selections = PackedSelection(dtype="uint64")
-
-    # Muon selection (matching hardcoded behavior in preproc.py)
-    mu_sel = (
-        (muons.pt > 55)
-        & (abs(muons.eta) < 2.4)
-        & muons.tightId
-        & (muons.miniIsoId > 1)
-    )
-    muon_count = ak.sum(mu_sel, axis=1)
-
-    # Individual cuts
-    selections.add("trigger", hlt.TkMu50)
-    selections.add("exactly_1_good_muon", muon_count == 1)
-    selections.add("met_cut", met.pt > 50)
-
-    # Combined skimming selection
-    selections.add(
-        "skim_selection",
-        selections.all("trigger", "exactly_1_good_muon", "met_cut")
     )
 
     return selections
