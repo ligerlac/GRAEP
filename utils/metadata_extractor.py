@@ -1,11 +1,15 @@
 """
-Module for generating and managing JSON metadata for NanoAOD ROOT datasets.
+NanoAOD dataset metadata extraction and management.
 
-This module provides a structured way to:
-  - Collect ROOT file paths from text listings.
-  - Build coffea-compatible filesets.
-  - Extract detailed metadata from NanoAOD files using coffea.
-  - Orchestrate the entire metadata generation and persistence process.
+This module builds filesets from ROOT file listings, extracts metadata using
+coffea preprocessing tools, and creates WorkItem objects that are later processed
+as chunks during the skimming phase.
+
+Outputs three main JSON files:
+- fileset.json: Maps dataset names to ROOT file paths and tree names
+- workitems.json: Contains WorkItem objects with file chunks and entry ranges
+- nanoaods.json: Summary of event counts per dataset and process
+
 """
 
 # Standard library imports

@@ -18,8 +18,7 @@ from utils.datasets import ConfigurableDatasetManager
 from utils.logging import setup_logging, log_banner
 from utils.schema import Config, load_config_with_restricted_cli
 from utils.metadata_extractor import NanoAODMetadataGenerator
-from utils.skimming import process_fileset_with_skimming
-from utils.workitem_skimming import process_workitems_with_skimming
+from utils.skimming import process_workitems_with_skimming
 
 # -----------------------------
 # Logging Configuration
@@ -44,33 +43,28 @@ def main():
     full_config = load_config_with_restricted_cli(ZprimeConfig, cli_args)
     config = Config(**full_config)  # Pydantic validation
     logger.info(f"Luminosity: {config.general.lumi}")
-
     dataset_manager = ( ConfigurableDatasetManager(config.datasets)
                        if config.datasets
                        else None
                     )
+
+    logger.info(log_banner("metadata and workitems extraction"))
+    # Generate metadata and fileset from NanoAODs
     generator = NanoAODMetadataGenerator(dataset_manager=dataset_manager)
     generator.run(generate_metadata=config.general.run_metadata_generation)
     fileset = generator.fileset
-
-    # Process workitems with skimming and get processed events
-    # processed_datasets = process_fileset_with_skimming(config, fileset)
-
-    logger.info(log_banner("WORKITEM-BASED SKIMMING AND PROCESSING"))
-
-    #Get workitems from the metadata generator
     workitems = generator.workitems
     if not workitems:
         logger.error("No workitems available. Please ensure metadata generation completed successfully.")
         sys.exit(1)
 
+    logger.info(log_banner("SKIMMING AND PROCESSING"))
     logger.info(f"Processing {len(workitems)} workitems")
 
-    #Process workitems using workitem-based approach
+    # Process workitems with dask-awkward
     processed_datasets = process_workitems_with_skimming(workitems, config, fileset, generator.nanoaods_summary)
 
 
-    #processed_datasets = {k: v for k,v in processed_datasets.items() if "signal" in k}
     analysis_mode = config.general.analysis
     if analysis_mode == "skip":
         logger.info(log_banner("Skim-Only Mode: Skimming Complete"))

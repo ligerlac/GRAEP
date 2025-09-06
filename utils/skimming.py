@@ -1,552 +1,838 @@
 """
-Centralized skimming manager with configurable selections and dual-mode support.
+Event skimming and preprocessing module.
 
-This module provides a unified interface for skimming that supports both:
-1. NanoAOD/DAK mode with PackedSelection functions
-2. Pure uproot mode with string-based cuts
-
-The skimming logic uses the same functor pattern as other selections in the codebase.
+This module provides workitem-based processing of NanoAOD datasets with
+automatic failure handling, event merging, and caching. It processes file
+chunks (workitems) in parallel using dask.bag, applies configurable event
+selections, and merges output files per dataset for efficient analysis.
 """
 
-import glob
 import hashlib
 import logging
 import os
-import warnings
 from pathlib import Path
-from typing import Any, Dict, Optional, Union
+from typing import Any, Dict, List, Optional, Set, Union
+from collections import defaultdict
 
 import awkward as ak
 import cloudpickle
-import dask_awkward as dak
-import numpy as np
+import dask.bag
+import hist
 import uproot
-from coffea.analysis_tools import PackedSelection
 from coffea.nanoevents import NanoAODSchema, NanoEventsFactory
-from tqdm import tqdm
+from coffea.processor.executor import WorkItem
+from tabulate import tabulate
 
 from utils.schema import SkimmingConfig
 from utils.tools import get_function_arguments
 
 logger = logging.getLogger(__name__)
 
-NanoAODSchema.warn_missing_crossrefs = False
-warnings.filterwarnings("ignore", category=FutureWarning, module="coffea.*")
 
-# Fixed output pattern for simplicity
-SKIMMING_OUTPUT_PATTERN = "part_{chunk}.root"  # chunk number will be filled in
-
-
-class ConfigurableSkimmingManager:
+def default_histogram() -> hist.Hist:
     """
-    Centralized skimming with config-driven selections and paths.
+    Create a default histogram for tracking processing success/failure.
 
-    This class handles both NanoAOD (with PackedSelection) and uproot (with cut strings)
-    preprocessing modes, using configuration to define selections.
+    This histogram serves as a dummy placeholder to track whether workitems
+    were processed successfully. The actual analysis histograms are created
+    separately during the analysis phase.
+
+    Returns
+    -------
+    hist.Hist
+        A simple histogram with regular binning for tracking purposes
+    """
+    return hist.Hist.new.Regular(10, 0, 1000).Weight()
+
+
+def workitem_analysis(
+    workitem: WorkItem,
+    config: SkimmingConfig,
+    configuration: Any,
+    file_counters: Dict[str, int],
+    part_counters: Dict[str, int],
+    is_mc: bool = True,
+) -> Dict[str, Any]:
+    """
+    Process a single workitem for skimming analysis.
+
+    This function handles I/O, applies skimming selections, and saves
+    output files on successful processing.
+
+    Parameters
+    ----------
+    workitem : WorkItem
+        The coffea WorkItem containing file metadata and entry ranges
+    config : SkimmingConfig
+        Skimming configuration with selection functions and output settings
+    configuration : Any
+        Main analysis configuration object containing branch selections
+    file_counters : Dict[str, int]
+        Pre-computed mapping of file keys to file numbers
+    part_counters : Dict[str, int]
+        Pre-computed mapping of part keys (including entry ranges) to part numbers
+    is_mc : bool, default True
+        Whether the workitem represents Monte Carlo data
+
+    Returns
+    -------
+    Dict[str, Any]
+        Dictionary containing:
+        - 'hist': Dummy histogram for success tracking
+        - 'failed_items': Set of failed workitems (empty on success)
+        - 'processed_events': Number of events processed
+        - 'output_files': List of created output files
+    """
+    dummy_hist = default_histogram()
+
+    try:
+        # Extract workitem metadata
+        filename = workitem.filename
+        treename = workitem.treename
+        entry_start = workitem.entrystart
+        entry_stop = workitem.entrystop
+        dataset = workitem.dataset
+
+        # Load events using NanoEventsFactory
+        events = NanoEventsFactory.from_root(
+            {filename: treename},
+            entry_start=entry_start,
+            entry_stop=entry_stop,
+            schemaclass=NanoAODSchema,
+        ).events()
+
+        total_events = len(events)
+
+        # Apply skimming selection using the provided function
+        selection_func = config.selection_function
+        selection_use = config.selection_use
+
+        # Get function arguments using existing utility
+        selection_args = get_function_arguments(
+            selection_use, events, function_name=selection_func.__name__
+        )
+        packed_selection = selection_func(*selection_args)
+
+        # Apply final selection mask
+        selection_names = packed_selection.names
+        if selection_names:
+            final_selection = selection_names[-1]
+            mask = packed_selection.all(final_selection)
+        else:
+            # No selection applied, keep all events
+            mask = slice(None)
+
+        filtered_events = events[mask]
+        processed_events = len(filtered_events)
+
+        # Fill dummy histogram with some dummy values for tracking
+        if processed_events > 0:
+            # Use a simple observable for the dummy histogram
+            dummy_values = [500.0] * min(processed_events, 100)
+            dummy_hist.fill(dummy_values)
+
+        output_files = []
+        if processed_events > 0:
+            output_file = _create_output_file_path(
+                workitem, config, file_counters, part_counters
+            )
+            _save_workitem_output(
+                filtered_events, output_file, config, configuration, is_mc
+            )
+            output_files.append(str(output_file))
+
+        return {
+            "hist": dummy_hist,
+            "failed_items": set(),
+            "processed_events": processed_events,
+            "output_files": output_files,
+        }
+
+    except Exception as e:
+        logger.error(f"Failed to process workitem {workitem.filename}: {e}")
+        return {
+            "hist": default_histogram(),
+            "failed_items": {workitem},  # Track failure
+            "processed_events": 0,
+            "output_files": [],
+        }
+
+
+def reduce_results(
+    result_a: Dict[str, Any], result_b: Dict[str, Any]
+) -> Dict[str, Any]:
+    """
+    Combine partial results from workitem processing.
+
+    It combines histograms, failed items, and other metrics from parallel
+    processing.
+
+    Parameters
+    ----------
+    result_a : Dict[str, Any]
+        First result dictionary
+    result_b : Dict[str, Any]
+        Second result dictionary
+
+    Returns
+    -------
+    Dict[str, Any]
+        Combined result dictionary
+    """
+    return {
+        "hist": result_a["hist"] + result_b["hist"],
+        "failed_items": result_a["failed_items"] | result_b["failed_items"],
+        "processed_events": result_a["processed_events"] + result_b["processed_events"],
+        "output_files": result_a["output_files"] + result_b["output_files"],
+    }
+
+
+def _create_output_file_path(
+    workitem: WorkItem,
+    config: SkimmingConfig,
+    file_counters: Dict[str, int],
+    part_counters: Dict[str, int],
+) -> Path:
+    """
+    Create output file path following the existing pattern with entry-range-based
+    counters.
+
+    Uses the same output structure as the current skimming code:
+    {output_dir}/{dataset}/file__{file_idx}/part_{chunk}.root
+
+    Parameters
+    ----------
+    workitem : WorkItem
+        The workitem being processed
+    config : SkimmingConfig
+        Skimming configuration with output directory
+    file_counters : Dict[str, int]
+        Pre-computed mapping of file keys to file numbers
+    part_counters : Dict[str, int]
+        Pre-computed mapping of part keys (including entry ranges) to part numbers
+
+    Returns
+    -------
+    Path
+        Full path to the output file
+    """
+    dataset = workitem.dataset
+
+    # Create keys that include entry ranges for proper differentiation
+    file_key = f"{dataset}::{workitem.filename}"
+    part_key = f"{file_key}::{workitem.entrystart}_{workitem.entrystop}"
+
+    # Get pre-computed file and part numbers
+    file_number = file_counters[file_key]
+    part_number = part_counters[part_key]
+
+    # Create output directory structure
+    base_dir = Path(config.output_dir)
+    dataset_dir = base_dir / dataset / f"file__{file_number}"
+    dataset_dir.mkdir(parents=True, exist_ok=True)
+
+    # Create output filename with entry-range-based part number
+    output_filename = f"part_{part_number}.root"
+    return dataset_dir / output_filename
+
+
+def _save_workitem_output(
+    events: Any,
+    output_file: Path,
+    config: SkimmingConfig,
+    configuration: Any,
+    is_mc: bool,
+) -> None:
+    """
+    Save filtered events to output ROOT file.
+
+    This function handles the actual I/O of saving skimmed events to disk,
+    using the same branch selection logic as the existing skimming code.
+
+    Parameters
+    ----------
+    events : Any
+        Filtered events to save
+    output_file : Path
+        Output file path
+    config : SkimmingConfig
+        Skimming configuration
+    configuration : Any
+        Main analysis configuration with branch selections
+    is_mc : bool
+        Whether this is Monte Carlo data
+    """
+    # Build branches to keep using existing logic
+    branches_to_keep = _build_branches_to_keep(configuration, is_mc)
+
+    # Create output file
+    with uproot.recreate(str(output_file)) as output_root:
+        # Prepare data for writing
+        output_data = {}
+
+        # Extract branches following the existing pattern
+        for obj, obj_branches in branches_to_keep.items():
+            if obj == "event":
+                # Event-level branches
+                for branch in obj_branches:
+                    if hasattr(events, branch):
+                        output_data[branch] = getattr(events, branch)
+            else:
+                # Object collection branches
+                if hasattr(events, obj):
+                    obj_collection = getattr(events, obj)
+                    for branch in obj_branches:
+                        if hasattr(obj_collection, branch):
+                            output_data[f"{obj}_{branch}"] = getattr(
+                                obj_collection, branch
+                            )
+
+        # Create and populate output tree
+        if output_data:
+            output_tree = output_root.mktree(
+                config.tree_name, {k: v.type for k, v in output_data.items()}
+            )
+            output_tree.extend(output_data)
+
+
+def _build_branches_to_keep(
+    configuration: Any, is_mc: bool
+) -> Dict[str, List[str]]:
+    """
+    Build dictionary of branches to keep based on configuration.
+
+    This replicates the logic from the existing skimming code to determine
+    which branches should be saved in the output files.
+
+    Parameters
+    ----------
+    configuration : Any
+        Main analysis configuration
+    is_mc : bool
+        Whether this is Monte Carlo data
+
+    Returns
+    -------
+    Dict[str, List[str]]
+        Dictionary mapping object names to lists of branch names
+    """
+    branches = configuration.preprocess.branches
+    mc_branches = configuration.preprocess.mc_branches
+
+    filtered = {}
+    for obj, obj_branches in branches.items():
+        if not is_mc:
+            # For data, exclude MC-only branches
+            filtered[obj] = [
+                br for br in obj_branches
+                if br not in mc_branches.get(obj, [])
+            ]
+        else:
+            # For MC, keep all branches
+            filtered[obj] = obj_branches
+
+    return filtered
+
+
+class WorkitemSkimmingManager:
+    """
+    Manager for workitem-based skimming using dask.bag processing.
+
+    This class orchestrates the new preprocessing workflow that processes
+    workitems directly using dask.bag, providing robust failure handling
+    and retry mechanisms.
+
+    Attributes
+    ----------
+    config : SkimmingConfig
+        Skimming configuration with selection functions and output settings
     """
 
     def __init__(self, config: SkimmingConfig):
         """
-        Initialize the skimming manager with configuration.
+        Initialize the workitem skimming manager.
 
         Parameters
         ----------
         config : SkimmingConfig
-            Configuration containing selection functions and parameters
+            Skimming configuration with selection functions and output settings
         """
         self.config = config
-        logger.info("Initialized configurable skimming manager")
+        logger.info("Initialized workitem-based skimming manager")
 
-        # Validate configuration
-        # if not config.nanoaod_selection and not config.uproot_cut_string:
-        #     raise ValueError("Either nanoaod_selection or uproot_cut_string must be provided")
-
-
-
-    def get_dataset_output_dir(self, dataset: str, file_idx: int) -> Path:
+    def process_workitems(
+        self,
+        workitems: List[WorkItem],
+        configuration: Any,
+        split_every: int = 4,
+        max_retries: int = 3,
+    ) -> Dict[str, Any]:
         """
-        Get the output directory for a specific dataset and file index.
+        Process a list of workitems using dask.bag with failure handling.
+
+        This is the main entry point that implements the dask.bag workflow
+        with retry logic for failed workitems.
 
         Parameters
         ----------
-        dataset : str
-            Dataset name
-        file_idx : int
-            File index
+        workitems : List[WorkItem]
+            List of workitems to process
+        configuration : Any
+            Main analysis configuration object
+        split_every : int, default 4
+            Split parameter for dask.bag.fold operation
+        max_retries : int, default 3
+            Maximum number of retry attempts for failed workitems
 
         Returns
         -------
-        Path
-            Output directory path following: {output_dir}/{dataset}/file__{idx}/
+        Dict[str, Any]
+            Final combined results with histograms and processing statistics
         """
-        base_dir = Path(self.config.output_dir)
-        return base_dir / dataset / f"file__{file_idx}"
+        logger.info(f"Processing {len(workitems)} workitems")
 
-    def get_glob_pattern(self, dataset: str, file_idx: int) -> str:
-        """
-        Get a glob pattern for finding output files for a specific dataset and file index.
+        # Pre-compute file and part counters for all workitems
+        file_counters, part_counters = self._compute_counters(workitems)
 
-        Parameters
-        ----------
-        dataset : str
-            Dataset name
-        file_idx : int
-            File index
+        # Initialize accumulator for successful results
+        full_result = {
+            "hist": default_histogram(),
+            "failed_items": set(),
+            "processed_events": 0,
+            "output_files": [],
+        }
 
-        Returns
-        -------
-        str
-            Glob pattern for finding output files
-        """
-        # Build the pattern based on the expected directory structure
-        # Structure: {output_dir}/{dataset}/file__{idx}/part_*.root
-        return f"{self.config.output_dir}/{dataset}/file__{file_idx}/part_*.root"
+        # Process workitems with retry logic
+        remaining_workitems = workitems.copy()
+        retry_count = 0
 
+        while remaining_workitems and retry_count < max_retries:
+            logger.info(
+                f"Attempt {retry_count + 1}: processing "
+                f"{len(remaining_workitems)} workitems"
+            )
 
+            # Create dask bag from remaining workitems
+            bag = dask.bag.from_sequence(remaining_workitems)
 
-    def discover_skimmed_files(self, dataset: str, file_idx: int) -> list[str]:
-        """
-        Discover existing skimmed files for a specific dataset and file index.
-
-        Parameters
-        ----------
-        dataset : str
-            Dataset name to search for
-        file_idx : int
-            File index to search for
-
-        Returns
-        -------
-        list[str]
-            List of skimmed file paths with tree names
-        """
-        glob_pattern = self.get_glob_pattern(dataset, file_idx)
-        logger.debug(f"Searching for skimmed files with pattern: {glob_pattern}")
-        found_files = glob.glob(glob_pattern)
-
-        # Add tree name for uproot
-        files_with_tree = [f"{file_path}:{self.config.tree_name}" for file_path in found_files]
-
-        logger.info(f"Discovered {len(files_with_tree)} skimmed files for {dataset}/file__{file_idx}")
-        return files_with_tree
-
-
-    def build_branches_to_keep(self, config, mode="uproot", is_mc=False):
-        """
-        Build list or dict of branches to keep for preprocessing.
-
-        Parameters
-        ----------
-        config : Config
-            Configuration object with a preprocess block.
-        mode : str
-            'uproot' returns a flat list; 'dask' returns a dict.
-        is_mc : bool
-            Whether input files are Monte Carlo.
-
-        Returns
-        -------
-        dict or list
-            Branches to retain depending on mode.
-        """
-        branches = config.preprocess.branches
-        mc_branches = config.preprocess.mc_branches
-        filtered = {}
-
-        for obj, obj_branches in branches.items():
-            if not is_mc:
-                filtered[obj] = [
-                    br for br in obj_branches if br not in mc_branches.get(obj, [])
-                ]
-            else:
-                filtered[obj] = obj_branches
-
-        if mode == "dask":
-            return filtered
-
-        if mode == "uproot":
-            flat = []
-            for obj, brs in filtered.items():
-                flat.extend(
-                    brs if obj == "event" else [f"{obj}_{br}" for br in brs]
+            # Map analysis function over workitems
+            futures = bag.map(
+                lambda wi: workitem_analysis(
+                    wi,
+                    self.config,
+                    configuration,
+                    file_counters,
+                    part_counters,
+                    is_mc=self._is_monte_carlo(wi.dataset),
                 )
+            )
 
-            return flat
+            # Reduce results using fold operation
+            task = futures.fold(reduce_results, split_every=split_every)
 
-        raise ValueError("Invalid mode: use 'dask' or 'uproot'.")
+            # Compute results
+            (result,) = dask.compute(task)
 
-    def skim(
-        self,
-        input_path: str,
-        tree: str,
-        dataset: str,
-        file_idx: int,
-        configuration,
-        processor: str = "uproot",
-        is_mc: bool = True,
-    ) -> Union[int, bool]:
+            # Update remaining workitems to failed ones
+            remaining_workitems = list(result["failed_items"])
+
+            # Accumulate successful results
+            if result["processed_events"] > 0:
+                full_result["hist"] += result["hist"]
+                full_result["processed_events"] += result["processed_events"]
+                full_result["output_files"].extend(result["output_files"])
+
+            # Log progress
+            failed_count = len(remaining_workitems)
+            successful_count = len(workitems) - failed_count
+            logger.info(
+                f"Attempt {retry_count + 1} complete: "
+                f"{successful_count} successful, {failed_count} failed"
+            )
+
+            retry_count += 1
+
+        # Final logging
+        if remaining_workitems:
+            logger.warning(
+                f"Failed to process {len(remaining_workitems)} workitems "
+                f"after {max_retries} attempts"
+            )
+            full_result["failed_items"] = set(remaining_workitems)
+        else:
+            logger.info("All workitems processed successfully")
+
+        # Create summary statistics by dataset
+        self._log_processing_summary(workitems, full_result["output_files"])
+
+        return full_result
+
+    def discover_workitem_outputs(self, workitems: List[WorkItem]) -> List[str]:
         """
-        Skim input ROOT file using the specified processor.
+        Discover existing output files from previous workitem processing.
+
+        This method scans for output files that would be created by the
+        workitem processing, allowing for resumption of interrupted workflows.
 
         Parameters
         ----------
-        input_path : str
-            Path to the input ROOT file.
-        tree : str
-            Name of the TTree inside the file.
-        dataset : str
-            Dataset name for organizing output files.
-        file_idx : int
-            File index for organizing output files.
-        configuration : object
-            Configuration object containing branch selection and other settings.
-        processor : str
-            Processor to use: "uproot" or "dask"
-        is_mc : bool
-            Whether input files are Monte Carlo.
+        workitems : List[WorkItem]
+            List of workitems to check for existing outputs
 
         Returns
         -------
-        Union[int, bool]
-            For dask: Total number of input events before filtering.
-            For uproot: True if successful, False otherwise.
+        List[str]
+            List of existing output file paths with tree names
         """
-        # Common setup - create output directory
-        output_dir = self.get_dataset_output_dir(dataset, file_idx)
-        os.makedirs(output_dir, exist_ok=True)
+        output_files = []
+        dataset_counts = {}
 
-        # Get total events for logging
-        with uproot.open(f"{input_path}:{tree}") as f:
-            total_events = f.num_entries
+        # Use the same counter computation as processing
+        file_counters, part_counters = self._compute_counters(workitems)
 
-        logger.info(f"📂 Preprocessing file: \n {input_path}\n with {total_events:,} events")
-
-        # Get common parameters
-        step_size = self.config.chunk_size
-        output_tree_name = self.config.tree_name
-
-        # Dispatch to processor-specific implementation
-        if processor == "dask":
-            return self._skim_with_dask(
-                input_path, tree, output_dir, configuration, is_mc,
-                total_events, step_size, output_tree_name
+        for workitem in workitems:
+            expected_output = _create_output_file_path(
+                workitem, self.config, file_counters, part_counters
             )
-        elif processor == "uproot":
-            return self._skim_with_uproot(
-                input_path, tree, output_dir, configuration, is_mc,
-                total_events, step_size, output_tree_name
+
+            if expected_output.exists():
+                # Add tree name for compatibility with existing code
+                file_with_tree = f"{expected_output}:{self.config.tree_name}"
+                output_files.append(file_with_tree)
+
+                # Count files per dataset
+                dataset = workitem.dataset
+                dataset_counts[dataset] = dataset_counts.get(dataset, 0) + 1
+
+        # Log with dataset breakdown
+        if dataset_counts:
+            dataset_info = ", ".join([
+                f"{dataset}: {count}" for dataset, count in dataset_counts.items()
+            ])
+            logger.info(
+                f"Found {len(output_files)} existing output files "
+                f"({dataset_info})"
             )
         else:
-            raise ValueError(f"Unknown processor: {processor}. Use 'uproot' or 'dask'.")
+            logger.info("No existing output files found")
 
-    def _skim_with_dask(
-        self,
-        input_path: str,
-        tree: str,
-        output_dir: Path,
-        configuration,
-        is_mc: bool,
-        total_events: int,
-        step_size: int,
-        output_tree_name: str,
-    ) -> int:
+        return output_files
+
+    def _log_processing_summary(
+        self, workitems: List[WorkItem], output_files: List[str]
+    ) -> None:
         """
-        Dask-specific skimming implementation.
+        Log a summary table of processing results by dataset.
+
+        Parameters
+        ----------
+        workitems : List[WorkItem]
+            Original list of workitems processed
+        output_files : List[str]
+            List of output files created
         """
-        branches = self.build_branches_to_keep(configuration, mode="dak", is_mc=is_mc)
-        chunk_num = 0
-
-        for start in range(0, total_events, step_size):
-            stop = min(start + step_size, total_events)
-
-            events = NanoEventsFactory.from_root(
-                {input_path: tree},
-                schemaclass=NanoAODSchema,
-                entry_start=start,
-                entry_stop=stop,
-                mode="eager",
-            ).events()
-
-            # Apply configurable selection
-            selection_func = self.config.nanoaod_selection["function"]
-            selection_use = self.config.nanoaod_selection["use"]
-
-            selection_args = get_function_arguments(
-                selection_use, events, function_name=selection_func.__name__
-            )
-            packed_selection = selection_func(*selection_args)
-
-            # Get final selection mask
-            selection_names = packed_selection.names
-            if selection_names:
-                final_selection = selection_names[-1]
-                mask = ak.Array(packed_selection.all(final_selection))
-            else:
-                mask = ak.ones_like(events.run, dtype=bool)
-
-            filtered = events[mask]
-
-            # Skip empty chunks
-            if len(filtered) == 0:
-                logger.debug(f"Chunk {chunk_num} is empty after selection, skipping")
-                continue
-
-            subset = {}
-            for obj, obj_branches in branches.items():
-                if obj == "event":
-                    subset.update(
-                        {
-                            br: filtered[br]
-                            for br in obj_branches
-                            if br in filtered.fields
-                        }
-                    )
-                elif obj in filtered.fields:
-                    subset.update(
-                        {
-                            f"{obj}_{br}": filtered[obj][br]
-                            for br in obj_branches
-                            if br in filtered[obj].fields
-                        }
-                    )
-
-            compact = dak.zip(subset, depth_limit=1)
-
-            # Write chunk to file
-            output_file = output_dir / SKIMMING_OUTPUT_PATTERN.format(chunk=chunk_num)
-            uproot.dask_write(
-                compact, destination=str(output_file), compute=True, tree_name=output_tree_name
-            )
-            chunk_num += 1
-
-        logger.info(f"💾 Wrote {chunk_num} skimmed chunks to: {output_dir}")
-        return total_events
-
-    def _skim_with_uproot(
-        self,
-        input_path: str,
-        tree: str,
-        output_dir: Path,
-        configuration,
-        is_mc: bool,
-        total_events: int,
-        step_size: int,
-        output_tree_name: str,
-    ) -> bool:
-        """
-        Uproot-specific skimming implementation.
-        """
-        cut_str = self.config.uproot_cut_string
-        branches = self.build_branches_to_keep(configuration, mode="uproot", is_mc=is_mc)
-
-        iterable = uproot.iterate(
-            f"{input_path}:{tree}",
-            branches,
-            step_size=step_size,
-            cut=cut_str,
-            library="ak",
-            num_workers=1,
+        # Collect statistics by dataset
+        dataset_stats = defaultdict(
+            lambda: {"events_processed": 0, "files_written": 0}
         )
 
-        n_chunks = (total_events + step_size - 1) // step_size
-        print('\n')
-        pbar = tqdm(iterable, total=n_chunks, desc="Processing events", unit="chunk")
+        # Count events processed by reading from output files
+        for output_file in output_files:
+            try:
+                # Extract dataset from file path
+                # Path format: {output_dir}/{dataset}/file__{N}/part_{M}.root
+                path_parts = Path(output_file).parts
+                if len(path_parts) >= 3:
+                    dataset = path_parts[-3]  # Get dataset from path
 
-        chunk_num = 0
-        files_created = 0
+                    # Read the file to count events
+                    with uproot.open(output_file) as f:
+                        if self.config.tree_name in f:
+                            tree = f[self.config.tree_name]
+                            num_events = tree.num_entries
+                            dataset_stats[dataset]["events_processed"] += num_events
+                            dataset_stats[dataset]["files_written"] += 1
 
-        for arrays in pbar:
-            # Skip empty chunks
-            if len(arrays) == 0:
-                logger.debug(f"Chunk {chunk_num} is empty after selection, skipping")
-                continue
+            except Exception as e:
+                # Still count the file even if we can't read events
+                try:
+                    path_parts = Path(output_file).parts
+                    if len(path_parts) >= 3:
+                        dataset = path_parts[-3]
+                        dataset_stats[dataset]["files_written"] += 1
+                except Exception:
+                    pass
 
-            # Create output file for this chunk
-            output_file = output_dir / SKIMMING_OUTPUT_PATTERN.format(chunk=chunk_num)
+        # Create summary table
+        if dataset_stats:
+            table_data = []
+            total_events = 0
+            total_files = 0
 
-            with uproot.recreate(str(output_file)) as output:
-                # Get branch types from first chunk
-                branch_types = {}
-                for branch in arrays.fields:
-                    if isinstance(arrays[branch], ak.Array):
-                        branch_types[branch] = arrays[branch].type
-                    else:
-                        branch_types[branch] = np.dtype(arrays[branch].dtype)
+            for dataset, stats in sorted(dataset_stats.items()):
+                events = stats["events_processed"]
+                files = stats["files_written"]
+                table_data.append([dataset, f"{events:,}", files])
+                total_events += events
+                total_files += files
 
-                # Create output tree
-                output_tree = output.mktree(output_tree_name, branch_types)
+            # Add totals row
+            table_data.append(["TOTAL", f"{total_events:,}", total_files])
 
-                # Write data
-                filtered_data = {branch: arrays[branch] for branch in arrays.fields}
-                output_tree.extend(filtered_data)
+            # Create and log table
+            headers = ["Dataset", "Events Saved", "Files Written"]
+            table = tabulate(table_data, headers=headers, tablefmt="grid")
 
-
-            files_created += 1
-            chunk_num += 1
-
-        pbar.close()
-        print('\n')
-
-        if files_created > 0:
-            logger.info(f"💾 Wrote {files_created} skimmed chunks to: {output_dir}")
-            return True
+            logger.info("Processing Summary:")
+            logger.info(f"\n{table}")
         else:
-            logger.info(f"💾 No events passed selection for {input_path}")
-            return False
+            logger.info("No output files were created during processing")
+
+    def _compute_counters(
+        self, workitems: List[WorkItem]
+    ) -> tuple[Dict[str, int], Dict[str, int]]:
+        """
+        Pre-compute file and part counters for all workitems.
+
+        This ensures consistent numbering across all workers by computing
+        the counters once before parallel processing begins.
+
+        Parameters
+        ----------
+        workitems : List[WorkItem]
+            List of all workitems to process
+
+        Returns
+        -------
+        tuple[Dict[str, int], Dict[str, int]]
+            File counters and part counters dictionaries
+        """
+        file_counters = {}
+        part_counters = {}
+
+        # Track unique files per dataset for sequential file numbering
+        dataset_file_counts = {}
+
+        for workitem in workitems:
+            dataset = workitem.dataset
+            file_key = f"{dataset}::{workitem.filename}"
+            part_key = f"{file_key}::{workitem.entrystart}_{workitem.entrystop}"
+
+            # Assign file number if not already assigned
+            if file_key not in file_counters:
+                if dataset not in dataset_file_counts:
+                    dataset_file_counts[dataset] = 0
+                file_counters[file_key] = dataset_file_counts[dataset]
+                dataset_file_counts[dataset] += 1
+
+            # Assign part number if not already assigned
+            if part_key not in part_counters:
+                # Count existing parts for this file
+                existing_parts = [
+                    k for k in part_counters.keys() if k.startswith(f"{file_key}::")
+                ]
+                part_counters[part_key] = len(existing_parts)
+
+        return file_counters, part_counters
+
+    def _is_monte_carlo(self, dataset: str) -> bool:
+        """
+        Determine if a dataset represents Monte Carlo data.
+
+        Parameters
+        ----------
+        dataset : str
+            Dataset name
+
+        Returns
+        -------
+        bool
+            True if dataset is Monte Carlo, False if it's data
+        """
+        # Simple heuristic: data datasets typically contain "data" in the name
+        return "data" not in dataset.lower()
 
 
-def create_default_skimming_config(output_dir: str = "skimmed/") -> SkimmingConfig:
+def process_workitems_with_skimming(
+    workitems: List[WorkItem],
+    config: Any,
+    fileset: Optional[Dict[str, Any]] = None,
+    nanoaods_summary: Optional[Dict[str, Any]] = None,
+    cache_dir: str = "/tmp/gradients_analysis/",
+) -> Dict[str, Any]:
     """
-    Create a default skimming configuration that matches current hardcoded behavior.
+    Process workitems using the workitem-based skimming approach with event
+    merging and caching.
 
-    This provides backward compatibility by replicating the current hardcoded
-    selections in configurable form.
+    This function serves as the main entry point for the workitem-based
+    preprocessing workflow. It processes workitems (if skimming is enabled)
+    and then discovers, merges, and caches events from the saved files for
+    analysis. Events from multiple output files per dataset are automatically
+    merged into a single NanoEvents object for improved performance and memory
+    efficiency.
 
     Parameters
     ----------
-    output_dir : str
-        Base output directory for skimmed files
+    workitems : List[WorkItem]
+        List of workitems to process, typically from NanoAODMetadataGenerator.workitems
+    config : Any
+        Main analysis configuration object containing skimming and preprocessing settings
+    fileset : Optional[Dict[str, Any]], default None
+        Fileset containing metadata including cross-sections for normalization
+    nanoaods_summary : Optional[Dict[str, Any]], default None
+        NanoAODs summary containing event counts per dataset for nevts metadata
+    cache_dir : str, default "/tmp/gradients_analysis/"
+        Directory for caching merged events. Cached files use the pattern:
+        {cache_dir}/{dataset}__{hash}.pkl where hash is based on input file paths
 
     Returns
     -------
-    SkimmingConfig
-        Default skimming configuration
+    Dict[str, List[Tuple[Any, Dict[str, Any]]]]
+        Dictionary mapping dataset names to lists containing a single (events, metadata) tuple.
+        Events are merged NanoEvents objects from all output files for the dataset.
+        Each metadata dictionary contains dataset, process, variation, and xsec information.
     """
-    def default_skim_selection(muons, jets, puppimet, hlt):
-        """
-        Default skimming selection function.
+    logger.info(f"Starting workitem preprocessing with {len(workitems)} workitems")
 
-        Applies basic trigger, muon, and MET requirements for skimming.
-        This matches the hardcoded behavior from the original preprocessing.
-        """
-        from coffea.analysis_tools import PackedSelection
-        selection = PackedSelection()
+    # Create workitem skimming manager
+    skimming_manager = WorkitemSkimmingManager(config.preprocess.skimming)
 
-        # Muon selection (matching hardcoded behavior)
-        mu_sel = (
-            (muons.pt > 55)
-            & (abs(muons.eta) < 2.4)
-            & muons.tightId
-            & (muons.miniIsoId > 1)
-        )
-        muon_count = ak.sum(mu_sel, axis=1)
+    # Group workitems by dataset
+    workitems_by_dataset = {}
+    for workitem in workitems:
+        dataset = workitem.dataset
+        if dataset not in workitems_by_dataset:
+            workitems_by_dataset[dataset] = []
+        workitems_by_dataset[dataset].append(workitem)
 
-        # Individual cuts
-        selection.add("trigger", hlt.TkMu50)
-        selection.add("exactly_1_good_muon", muon_count == 1)
-        selection.add("met_cut", puppimet.pt > 50)
+    # Process workitems if skimming is enabled
+    if config.general.run_skimming:
+        logger.info("Running skimming")
+        results = skimming_manager.process_workitems(workitems, config)
+        logger.info(f"Skimming complete: {results['processed_events']:,} events")
 
-        # Combined skimming selection
-        selection.add("skim", selection.all("trigger", "exactly_1_good_muon", "met_cut"))
-
-        return selection
-
-    # Default uproot cut string matching current hardcoded behavior
-    default_uproot_cut = "HLT_TkMu50*(PuppiMET_pt>50)"
-
-    return SkimmingConfig(
-        nanoaod_selection={
-            "function": default_skim_selection,
-            "use": [("Muon", None), ("Jet", None), ("PuppiMET", None), ("HLT", None)]
-        },
-        uproot_cut_string=default_uproot_cut,
-        output_dir=output_dir,
-        chunk_size=100_000,
-        tree_name="Events"
-    )
-
-
-def process_fileset_with_skimming(config, fileset, cache_dir="/tmp/gradients_analysis/"):
-    """
-    Process entire fileset with skimming and return processed events for analysis.
-
-    This is the main entry point for skimming that handles the complete workflow:
-    - Loop over datasets in fileset
-    - Run skimming if enabled
-    - Discover and load skimmed files
-    - Handle caching of processed events
-    - Return events ready for analysis
-
-    Parameters
-    ----------
-    config : Config
-        Analysis configuration
-    fileset : dict
-        Dictionary mapping dataset names to file and metadata
-    cache_dir : str, optional
-        Directory for caching processed events
-
-    Returns
-    -------
-    dict
-        Dictionary mapping dataset names to list of (events, metadata) tuples
-    """
+    # Always discover and read from saved files
+    logger.info("Reading from saved files")
     processed_datasets = {}
 
-    # Loop over datasets in the fileset
-    for dataset, content in fileset.items():
-        metadata = content["metadata"]
-        metadata["dataset"] = dataset
-        process_name = metadata["process"]
-
+    for dataset, dataset_workitems in workitems_by_dataset.items():
         # Skip datasets not explicitly requested in config
-        if (req := config.general.processes) and process_name not in req:
-            logger.info(f"Skipping {dataset} (process {process_name} not in requested)")
-            continue
+        if hasattr(config.general, 'processes') and config.general.processes:
+            process_name = dataset.split('__')[0] if '__' in dataset else dataset
+            if process_name not in config.general.processes:
+                logger.info(f"Skipping {dataset} (not requested)")
+                continue
 
-        processed_events = []
+        # Discover output files for this dataset
+        output_files = skimming_manager.discover_workitem_outputs(dataset_workitems)
 
-        # Create skimming manager - always available
-        skimming_manager = ConfigurableSkimmingManager(config.preprocess.skimming)
+        if output_files:
+            # Create metadata for compatibility with existing analysis code
+            metadata = {
+                "dataset": dataset,
+                "process": dataset.split('__')[0] if '__' in dataset else dataset,
+                "variation": dataset.split('__')[1] if '__' in dataset else "nominal",
+            }
 
-        logger.info(f"🚀 Processing dataset: {dataset}")
-        total_per_dataset = 0
-        # Loop over ROOT files associated with the dataset
-        for idx, (file_path, tree) in enumerate(content["files"].items()):
-            # Run skimming if enabled
-            if config.general.run_skimming:
-                # Log which mode is being used
-                if skimming_manager.config.nanoaod_selection:
-                    logger.debug(f"Using NanoAOD/DAK skimming mode for {dataset}")
-                elif skimming_manager.config.uproot_cut_string:
-                    logger.debug(f"Using uproot skimming mode for {dataset}")
-                skimming_manager.skim(
-                    input_path=file_path,
-                    tree=tree,
-                    dataset=dataset,
-                    file_idx=idx,
-                    configuration=config,
-                    is_mc=("data" != dataset)
-                )
+            # Add cross-section metadata from fileset if available
+            if fileset and dataset in fileset:
+                xsec = fileset[dataset].get('metadata', {}).get('xsec', 1.0)
+                metadata['xsec'] = xsec
+            else:
+                metadata['xsec'] = 1.0
+                if fileset:
+                    logger.warning(f"No cross-section for {dataset}, using 1.0")
 
-            # Discover skimmed files using skimming manager
-            skimmed_files = skimming_manager.discover_skimmed_files(dataset, idx)
-            total_per_dataset += len(skimmed_files)
+            # Add nevts from NanoAODs summary if available
+            # The analysis code expects 'nevts' field for normalization
+            nevts = 0
+            if nanoaods_summary:
+                # Parse dataset to get process and variation
+                process_name = dataset.split('__')[0] if '__' in dataset else dataset
+                variation = dataset.split('__')[1] if '__' in dataset else "nominal"
 
-            # Process each skimmed file
-            for skimmed_file in skimmed_files:
-                cache_key = hashlib.md5(skimmed_file.encode()).hexdigest()
-                cache_file = os.path.join(cache_dir, f"{dataset}__{cache_key}.pkl")
+                if process_name in nanoaods_summary:
+                    if variation in nanoaods_summary[process_name]:
+                        nevts = nanoaods_summary[process_name][variation].get(
+                            'nevts_total', 0
+                        )
 
-                # Handle caching: process and cache, read from cache, or skip
-                if config.general.read_from_cache and os.path.exists(cache_file):
-                    logger.info(f"Reading cached events for {skimmed_file}")
+            metadata['nevts'] = nevts
+            if nevts == 0:
+                logger.warning(f"No nevts found for {dataset}, using 0")
+
+            # Create cache key for the merged dataset
+            # Use sorted file paths to ensure consistent cache key
+            sorted_files = sorted(output_files)
+            cache_input = f"{dataset}::{':'.join(sorted_files)}"
+            cache_key = hashlib.md5(cache_input.encode()).hexdigest()
+            cache_file = os.path.join(cache_dir, f"{dataset}__{cache_key}.pkl")
+
+            # Check if we should read from cache
+            if config.general.read_from_cache and os.path.exists(cache_file):
+                logger.info(f"Loading cached events for {dataset}")
+                try:
                     with open(cache_file, "rb") as f:
-                        events = cloudpickle.load(f)
-                else:
-                    logger.info(f"Processing {skimmed_file}")
+                        merged_events = cloudpickle.load(f)
+                    logger.info(f"Loaded {len(merged_events)} cached events")
+                    processed_datasets[dataset] = [(merged_events, metadata.copy())]
+                    continue  # Skip to next dataset
+                except Exception as e:
+                    logger.error(f"Failed to load cached events for {dataset}: {e}")
+                    # Fall back to loading from files
+
+            # Load and merge events from all discovered files
+            all_events = []
+            total_events_loaded = 0
+
+            for file_path in output_files:
+                try:
+                    # Load events using NanoEventsFactory
                     events = NanoEventsFactory.from_root(
-                        skimmed_file, schemaclass=NanoAODSchema,
-                        mode="eager",
+                        file_path, schemaclass=NanoAODSchema, mode="eager"
                     ).events()
-                    # Cache the events if not reading from cache
-                    if not config.general.read_from_cache:
+                    events = ak.materialize(events)
+                    all_events.append(events)
+                    total_events_loaded += len(events)
+                except Exception as e:
+                    logger.error(f"Failed to load events from {file_path}: {e}")
+                    continue
+
+            # Merge all events into a single array if we have any events
+            if all_events:
+                try:
+                    if len(all_events) == 1:
+                        # Single file, no need to concatenate
+                        merged_events = all_events[0]
+                    else:
+                        # Multiple files, concatenate them
+                        merged_events = ak.concatenate(all_events, axis=0)
+
+                    logger.info(
+                        f"Merged {len(output_files)} files → "
+                        f"{len(merged_events)} events for {dataset}"
+                    )
+
+                    # Cache the merged events
+                    try:
                         os.makedirs(cache_dir, exist_ok=True)
                         with open(cache_file, "wb") as f:
-                            cloudpickle.dump(events, f)
+                            cloudpickle.dump(merged_events, f)
+                        logger.info(f"Cached events for {dataset}")
+                    except Exception as e:
+                        logger.warning(f"Failed to cache events for {dataset}: {e}")
 
-                processed_events.append((events, metadata.copy()))
-        processed_datasets[dataset] = processed_events
-        logger.info(f"Dataset {dataset} has {total_per_dataset} skimmed files")
+                    processed_datasets[dataset] = [(merged_events, metadata.copy())]
+
+                except Exception as e:
+                    logger.error(f"Failed to merge events for {dataset}: {e}")
+                    # Fallback to individual events if merging fails
+                    processed_events = []
+                    for i, events in enumerate(all_events):
+                        processed_events.append((events, metadata.copy()))
+                    processed_datasets[dataset] = processed_events
+        else:
+            logger.warning(f"No output files found for {dataset}")
+            processed_datasets[dataset] = []
 
     return processed_datasets
