@@ -35,8 +35,8 @@ from tabulate import tabulate
 # =============================================================================
 from analysis.base import Analysis
 from user.cuts import lumi_mask
-from utils.jax_stats import build_channel_data_scalar, compute_discovery_pvalue
-from utils.evm_stats import fit_params #build_channel_data_scalar, compute_discovery_pvalue,
+#from utils.jax_stats import build_channel_data_scalar, compute_discovery_pvalue
+from utils.evm_stats import fit_params, build_channel_data_scalar, compute_discovery_pvalue
 from utils.logging import BLUE, GREEN, RED, RESET, log_banner, get_console
 from rich.table import Table
 from rich.text import Text
@@ -1833,8 +1833,8 @@ class DifferentiableAnalysis(Analysis):
         all_channel_names = {
             f"Channel: {c.name}" for c in config.channels if c.use_in_diff
         }
-        summary_data = []
 
+        summary_data = []
         logger.info(log_banner("Processing skimmed data"))
 
         # Prepare dictionary to collect MVA training data

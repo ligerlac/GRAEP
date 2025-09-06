@@ -497,4 +497,4 @@ def compute_discovery_pvalue(
         return_mle_pars=True,  # Return fitted nuisance parameters
         test_stat="q0",  # Discovery test statistic
     )
-    return p_value, mle_parameters
+    return p_value, (mle_parameters, {})
