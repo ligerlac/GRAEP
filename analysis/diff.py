@@ -35,9 +35,11 @@ from tabulate import tabulate
 # =============================================================================
 from analysis.base import Analysis
 from user.cuts import lumi_mask
-# from utils.jax_stats import build_channel_data_scalar, compute_discovery_pvalue
-from utils.evm_stats import build_channel_data_scalar, compute_discovery_pvalue, fit_params
-from utils.logging import BLUE, GREEN, RED, RESET, log_banner
+from utils.jax_stats import build_channel_data_scalar, compute_discovery_pvalue
+from utils.evm_stats import fit_params #build_channel_data_scalar, compute_discovery_pvalue,
+from utils.logging import BLUE, GREEN, RED, RESET, log_banner, get_console
+from rich.table import Table
+from rich.text import Text
 from utils.mva import JAXNetwork, TFNetwork
 from utils.plot import (
     create_cms_histogram,
@@ -236,23 +238,27 @@ def _log_parameter_update(
                 p_value_change_initial = 0.0
         p_value_row.append(f"{p_value_change_initial:+.2f}%")
 
-    # Colour green for improvement (decrease), red for worsening (increase)
+    # Get console for Rich output
+    console = get_console()
+
+    # Create Rich Table for p-values
+    p_value_table = Table(show_header=True, header_style="bold")
+    for header in p_value_headers:
+        p_value_table.add_column(header)
+
+    # Determine color for p-value row
     if new_p_value < old_p_value:
-        p_value_row_coloured = [
-            f"{GREEN}{item}{RESET}" for item in p_value_row
-        ]
+        # Green for improvement (decrease)
+        colored_row = [Text(item, style="green") for item in p_value_row]
     elif new_p_value > old_p_value:
-        p_value_row_coloured = [f"{RED}{item}{RESET}" for item in p_value_row]
+        # Red for worsening (increase)
+        colored_row = [Text(item, style="red") for item in p_value_row]
     else:
-        p_value_row_coloured = p_value_row
-    p_value_table = tabulate(
-        [p_value_row_coloured], headers=p_value_headers, tablefmt="grid"
-    )
+        colored_row = [Text(item, style="white") for item in p_value_row]
+
+    p_value_table.add_row(*colored_row)
 
     # --- Parameter Table ---
-    table_data = []
-    headers = ["Parameter", "Old Value", "New Value", "% Change"]
-
     # Create a map from MVA name to its config for easy lookup
     mva_config_map = {mva.name: mva for mva in mva_configs or []}
 
@@ -264,6 +270,15 @@ def _log_parameter_update(
         if initial_params
         else {}
     )
+
+    # Create Rich Table for parameters
+    param_headers = ["Parameter", "Old Value", "New Value", "% Change"]
+    if initial_params:
+        param_headers.append("% Change from Initial")
+
+    param_table = Table(show_header=True, header_style="bold")
+    for header in param_headers:
+        param_table.add_column(header)
 
     for name, old_val in sorted(all_old_params.items()):
         new_val = all_new_params[name]
@@ -308,8 +323,8 @@ def _log_parameter_update(
         else:
             percent_change = float("inf") if new_param != 0 else 0.0
 
-        # Format for table
-        row = [
+        # Create row data
+        row_data = [
             name_display,
             f"{old_param:.4f}",
             f"{new_param:.4f}",
@@ -317,8 +332,7 @@ def _log_parameter_update(
         ]
 
         # Calculate percentage change from initial
-        if initial_param is None:
-            headers.append("% Change from Initial")
+        if initial_params:
             if initial_param != 0:
                 percent_change_from_initial = (
                     (new_param - initial_param) / initial_param
@@ -327,15 +341,17 @@ def _log_parameter_update(
                 percent_change_from_initial = (
                     float("inf") if new_param != 0 else 0.0
                 )
+            row_data.append(f"{percent_change_from_initial:+.2f}%")
 
-            row.append(f"{percent_change_from_initial:+.2f}%")
-
-        # Colour the row blue if the parameter value has changed
+        # Color the row green if the parameter value has changed, otherwise white
         if not np.allclose(old_param, new_param, atol=1e-6, rtol=1e-5):
-            row = [f"{BLUE}{item}{RESET}" for item in row]
+            colored_row = [Text(item, style="green") for item in row_data]
+        else:
+            colored_row = [Text(item, style="white") for item in row_data]
 
-        table_data.append(row)
+        param_table.add_row(*colored_row)
 
+    # Format header
     if isinstance(step, int):
         header = f"STEP {step:3d}"
     else:
@@ -344,12 +360,18 @@ def _log_parameter_update(
         else:
             header = ""
 
-    if not table_data:
-        logger.info(f"\n{header}\n{p_value_table}\n(No parameters to log)")
-        return
+    # Print using Rich console directly
+    if header:
+        console.print(f"\n{header}")
 
-    table_str = tabulate(table_data, headers=headers, tablefmt="grid")
-    logger.info(f"\n{header}\n{p_value_table}\n{table_str}\n")
+    console.print(p_value_table)
+
+    if param_table.row_count > 0:
+        console.print(param_table)
+    else:
+        console.print("(No parameters to log)")
+
+    console.print()  # Add newline
 
 
 # -----------------------------------------------------------------------------
@@ -781,7 +803,7 @@ class DifferentiableAnalysis(Analysis):
 
     def _log_config_summary(self) -> None:
         """Logs a structured summary of the key analysis configuration options."""
-        log_banner("Differentiable Analysis Configuration Summary")
+        logger.info(log_banner("Differentiable Analysis Configuration Summary"))
 
         # --- General Settings ---
         general_cfg = self.config.general
@@ -795,7 +817,8 @@ class DifferentiableAnalysis(Analysis):
         ]
         logger.info(
             "General Settings:\n"
-            + tabulate(general_data, tablefmt="grid", stralign="left")
+            + tabulate(general_data, tablefmt="rounded_outline", stralign="left")
+            + "\n"
         )
 
         # --- Channels ---
@@ -809,8 +832,9 @@ class DifferentiableAnalysis(Analysis):
                 + tabulate(
                     channel_data,
                     headers=["Name", "Fit Observable"],
-                    tablefmt="grid",
+                    tablefmt="rounded_outline",
                 )
+                + "\n"
             )
 
         # --- Processes ---
@@ -823,7 +847,10 @@ class DifferentiableAnalysis(Analysis):
             if self.config.general.processes:
                 processes = [p for p in processes if p in self.config.general.processes]
             processes_data = [[p] for p in processes]
-            logger.info("Processes Included:\n" + tabulate(processes_data, headers=["Process"], tablefmt="grid"))
+            logger.info("Processes Included:\n"
+                        + tabulate(processes_data, headers=["Process"], tablefmt="rounded_outline")
+                        + "\n"
+                        )
 
         # --- Systematics ---
         if self.config.general.run_systematics:
@@ -838,8 +865,8 @@ class DifferentiableAnalysis(Analysis):
                     + tabulate(
                         syst_data,
                         headers=["Systematic", "Type"],
-                        tablefmt="grid",
-                    )
+                        tablefmt="rounded_outline")
+                    + "\n"
                 )
 
         if not self.config.jax:
@@ -855,7 +882,8 @@ class DifferentiableAnalysis(Analysis):
         ]
         logger.info(
             "Optimisation Settings:\n"
-            + tabulate(jax_data, tablefmt="grid", stralign="left")
+            + tabulate(jax_data, tablefmt="rounded_outline", stralign="left")
+            + "\n"
         )
 
         # --- Optimisable Parameters ---
@@ -871,7 +899,8 @@ class DifferentiableAnalysis(Analysis):
             if params_data:
                 logger.info(
                     "Initial Optimisable Parameters:\n"
-                    + tabulate(params_data, headers=headers, tablefmt="grid")
+                    + tabulate(params_data, headers=headers, tablefmt="rounded_outline")
+                    + "\n"
                 )
 
         # --- Learning Rates ---
@@ -884,8 +913,9 @@ class DifferentiableAnalysis(Analysis):
             + tabulate(
                 lr_data,
                 headers=["Parameter", "Learning Rate"],
-                tablefmt="grid",
+                tablefmt="rounded_outline",
             )
+            + "\n"
         )
 
         # --- MVA Models ---
@@ -918,7 +948,8 @@ class DifferentiableAnalysis(Analysis):
                 )
             logger.info(
                 "MVA Models:\n"
-                + tabulate(mva_data, headers=headers, tablefmt="grid")
+                + tabulate(mva_data, headers=headers, tablefmt="rounded_outline")
+                + "\n"
             )
 
     # -------------------------------------------------------------------------
@@ -1390,15 +1421,16 @@ class DifferentiableAnalysis(Analysis):
             return histograms
 
         for channel in self.channels:
-            logger.info(f"Processing channel {channel.name}...")
+            channel_name = channel.name
             # Skip channels not participating in differentiable analysis
             if not channel.use_in_diff:
                 warning_logger(
-                    f"Skipping channel {channel.name} (use_in_diff=False)"
+                    f"Skipping channel {channel_name}"
                 )
                 continue
 
-            channel_name = channel.name
+            info_logger(f"Processing channel {channel_name}...")
+
 
             # Skip if channel is not listed in requested channels
             if (
@@ -1478,9 +1510,7 @@ class DifferentiableAnalysis(Analysis):
                 info_logger(
                     f"Histogramming: {process} | {variation} | {channel_name} | "
                     f"{obs_name} | Events (Raw): {nevents:,} | "
-                    f"Events(Weighted): {ak.sum(weights):,.2f}"
-                    f"{obs_name} | Events (Raw): {nevents:,} | "
-                    f"Events(Weighted): {ak.sum(weights):.2f}"
+                    f"Events (Weighted): {ak.sum(weights):,.2f}"
                 )
 
                 # Evaluate observable function
@@ -1565,7 +1595,7 @@ class DifferentiableAnalysis(Analysis):
         all_histograms = defaultdict(lambda: defaultdict(dict))
         process = metadata["process"]
         xsec = metadata["xsec"]
-        n_gen = 1.0 #metadata["nevts"]
+        n_gen = metadata["nevts"]
         lumi = self.config["general"]["lumi"]
 
         # Calculate cross-section weight for MC (unit weight for data)
@@ -1707,9 +1737,8 @@ class DifferentiableAnalysis(Analysis):
         info_logger = logger.info if not silent else logger.debug
         info_logger(
             log_banner(
-                "📊 Starting histogram collection and p-value calculation..."
-            )
-        )
+            "📊 Starting histogram collection and p-value calculation..."
+        ))
         histograms_by_process = defaultdict(dict)
 
         # -------------------------------------------------------------------------
@@ -1720,7 +1749,7 @@ class DifferentiableAnalysis(Analysis):
 
             info_logger(
                 f" ⏳ Processing dataset: {dataset_name} "
-                f"(process: {process_name}, files: {len(dataset_files)})"
+                f"(process: {process_name})"
             )
 
             # Ensure process histogram container exists
@@ -1758,7 +1787,7 @@ class DifferentiableAnalysis(Analysis):
         # Compute statistical p-value from histograms
         # -------------------------------------------------------------------------
         info_logger(
-            " ✅ Histogram collection complete. Starting p-value calculation..."
+            "✅ Histogram collection complete. Starting p-value calculation..."
         )
         pvalue, aux = self._calculate_pvalue(
             histograms_by_process, params["fit"], silent=silent
@@ -1806,7 +1835,7 @@ class DifferentiableAnalysis(Analysis):
         }
         summary_data = []
 
-        log_banner("Processing skimmed data")
+        logger.info(log_banner("Processing skimmed data"))
 
         # Prepare dictionary to collect MVA training data
         mva_data: dict[str, dict[str, list[Tuple[dict, int]]]] = defaultdict(
@@ -1968,7 +1997,7 @@ class DifferentiableAnalysis(Analysis):
                 + tabulate(
                     [formatted_row],
                     headers=headers,
-                    tablefmt="grid",
+                    tablefmt="rounded_outline",
                     stralign="right",
                 )
                 + "\n"
@@ -1995,7 +2024,7 @@ class DifferentiableAnalysis(Analysis):
         logger.info(
             "📊 Data Processing Summary\n"
             + tabulate(
-                table_data, headers=headers, tablefmt="grid", stralign="right"
+                table_data, headers=headers, tablefmt="rounded_outline", stralign="right"
             )
             + "\n"
         )
@@ -2013,7 +2042,7 @@ class DifferentiableAnalysis(Analysis):
             self.config.general.run_mva_training
             and (mva_cfg := self.config.mva) is not None
         ):
-            log_banner("Executing MVA Pre-training")
+            logger.info(log_banner("Executing MVA Pre-training"))
             models, nets = self._run_mva_training(mva_data)
 
             # Save trained models and attach to processed data
@@ -2123,9 +2152,7 @@ class DifferentiableAnalysis(Analysis):
             # ---------------------------------------------------------------------
             # 3. Run initial traced analysis to compute KDE histograms
             # ---------------------------------------------------------------------
-            logger.info(
-                log_banner("Running initial p-value computation (traced)")
-            )
+            logger.info(log_banner("Running initial p-value computation (traced)"))
             initial_pvalue, (mle_parameters, mle_parameters_uncertainties) = self._run_traced_analysis_chain(
                 all_parameters, processed_data
             )
@@ -2155,9 +2182,7 @@ class DifferentiableAnalysis(Analysis):
             # ----------------------------------------------------------------------
             # Compute gradients to seed optimiser
             # ----------------------------------------------------------------------
-            logger.info(
-                log_banner("Computing parameter gradients before optimisation")
-            )
+            logger.info(log_banner("Computing parameter gradients before optimisation"))
 
             (_, _), gradients = jax.value_and_grad(
                 self._run_traced_analysis_chain,
@@ -2168,7 +2193,7 @@ class DifferentiableAnalysis(Analysis):
             # ----------------------------------------------------------------------
             # Prepare for optimisation
             # ----------------------------------------------------------------------
-            log_banner("Preparing for parameter optimisation")
+            logger.info(log_banner("Preparing for parameter optimisation"))
 
             # Define objective for optimiser (p-value to minimise)
             def objective(
@@ -2228,7 +2253,7 @@ class DifferentiableAnalysis(Analysis):
             )(all_parameters)
 
             # Set up optimisation loop
-            log_banner("Beginning parameter optimisation")
+            logger.info(log_banner("Beginning parameter optimisation"))
             initial_params = all_parameters.copy()
             pval_history = []
             aux_history = {
@@ -2326,7 +2351,7 @@ class DifferentiableAnalysis(Analysis):
             )
 
             # Log final summary table comparing initial and final states
-            log_banner("Optimisation results")
+            logger.info(log_banner("Optimisation results"))
             _log_parameter_update(
                 step="",
                 old_p_value=float(initial_pvalue),
@@ -2339,11 +2364,9 @@ class DifferentiableAnalysis(Analysis):
             # ----------------------------------------------------------------------
             # Prepare post-optimisation histograms
             # ----------------------------------------------------------------------
-            logger.info(
-                log_banner(
-                    "Running analysis chain with optimised parameters (untraced)"
-                )
-            )
+            logger.info(log_banner(
+                "Running analysis chain with optimised parameters (untraced)"
+            ))
             # Run the traced analysis chain with final parameters
             _ = self._run_traced_analysis_chain(final_params, processed_data)
 
@@ -2401,7 +2424,7 @@ class DifferentiableAnalysis(Analysis):
                 with open(path, "wb") as f:
                     pickle.dump(jax.tree.map(np.array, optimised_nn_params), f)
 
-        log_banner("Making plots and summaries")
+        logger.info(log_banner("Making plots and summaries"))
         # ---------------------------------------------------------------------
         # 4. Reload results and generate summary plots
         # ---------------------------------------------------------------------
@@ -2421,7 +2444,6 @@ class DifferentiableAnalysis(Analysis):
         final_mva_scores = results["final_mva_scores"]
         initial_mva_scores = results["initial_mva_scores"]
 
-        log_banner("Generating parameter evolution plots")
         # Generate optimisation progress plots
         if self.config.jax.explicit_optimisation:
             logger.info("Generating parameter history plots")

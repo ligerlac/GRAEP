@@ -1,42 +1,81 @@
 import logging
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Optional
 
 from rich.logging import RichHandler
-from rich.text import Text
 from rich.console import Console
-from rich.pretty import Pretty
 from rich.theme import Theme
-from rich.style import Style
-from tabulate import tabulate
+from rich.markup import escape
 
-# ANSI escape codes for colors
+# ANSI escape codes for colors (kept for backward compatibility)
 BLUE = "\033[0;34m"
-YELLOW = "\033[1;33m"
 RED = "\033[0;31m"
-MAGENTA = "\033[95m"
 GREEN = "\033[0;32m"
 RESET = "\033[0m"
 
-def log_banner(text: str) -> None:
+
+# =============================================================================
+# Console Management
+# =============================================================================
+
+_console = None
+
+def get_console() -> Console:
+    """Get the global Rich console instance for direct Rich output."""
+    global _console
+    if _console is None:
+        custom_theme = Theme({
+            "repr.path": "default",   # no color for paths
+            "repr.filename": "default",
+            "log.message": "default",
+        })
+        _console = Console(theme=custom_theme)
+    return _console
+
+
+# =============================================================================
+# Specialized Logging Functions
+# =============================================================================
+
+def log_banner(text: str) -> str:
     """
-    Logs a magenta-colored banner.
+    Returns a magenta-colored banner string for use with logger.
+
+    This function creates a formatted banner with Rich markup that will be
+    properly rendered by the RichHandler when logged.
 
     Parameters
     ----------
     text : str
         The text to display in the banner.
-    """
-    console = Console(theme=Theme({"log.message": "magenta", "repr.path": "white"}))
 
-    text = (f"\n{'=' * 80}\n"
-            f"{ ' ' * ((80 - len(text)) // 2)}{text.upper()}\n"
-            f"{ '=' * 80}"
-        )
-    console.print(text, style="log.message")
+    Returns
+    -------
+    str
+        Formatted banner string with Rich markup.
+    """
+    # Escape the text to prevent Rich from interpreting it as markup
+    upper_text = text.upper()
+    escaped_text = escape(upper_text)
+
+    # Use original text length for centering calculation
+    banner_text = (f"{'=' * 80}\n"
+                   f"{ ' ' * ((80 - len(upper_text)) // 2)}{escaped_text}\n"
+                   f"{ '=' * 80}"
+                  )
+    return f"[magenta]{banner_text}[/magenta]"
+
+
+# =============================================================================
+# Logger Setup
+# =============================================================================
 
 def setup_logging(level: str = "INFO") -> None:
     """
-    Sets up logging with RichHandler.
+    Sets up logging with RichHandler configured for this project.
+
+    The RichHandler is configured with markup enabled to support colored
+    banners and tables, but regular log messages should avoid using markup
+    unless specifically intended.
 
     Parameters
     ----------
@@ -49,13 +88,17 @@ def setup_logging(level: str = "INFO") -> None:
     if log.handlers:
         return
 
-    custom_theme = Theme({
-        "repr.path": "default",   # no color for paths
-        "repr.filename": "default",
-    })
+    # Use the global console instance for consistency
+    console = get_console()
 
-    console = Console(theme=custom_theme)
-    handler = RichHandler(console=console, rich_tracebacks=True, show_time=True, markup=False) #, level_styles=level_styles)
+    # Configure RichHandler with markup enabled for banners and tables
+    handler = RichHandler(
+        console=console,
+        rich_tracebacks=True,
+        show_time=True,
+        markup=True,  # Enable markup for banners and tables
+        log_time_format="%H:%M:%S",
+    )
     handler.setFormatter(
         logging.Formatter("%(message)s")
     )

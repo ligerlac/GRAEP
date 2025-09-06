@@ -56,7 +56,7 @@ def main():
     # Process workitems with skimming and get processed events
     # processed_datasets = process_fileset_with_skimming(config, fileset)
 
-    log_banner("WORKITEM-BASED SKIMMING AND PROCESSING")
+    logger.info(log_banner("WORKITEM-BASED SKIMMING AND PROCESSING"))
 
     #Get workitems from the metadata generator
     workitems = generator.workitems
@@ -73,20 +73,20 @@ def main():
     #processed_datasets = {k: v for k,v in processed_datasets.items() if "signal" in k}
     analysis_mode = config.general.analysis
     if analysis_mode == "skip":
-        log_banner("Skim-Only Mode: Skimming Complete")
+        logger.info(log_banner("Skim-Only Mode: Skimming Complete"))
         logger.info("✅ Skimming completed successfully. Analysis skipped as requested.")
         logger.info(f"Skimmed files are available in the configured output directories.")
         return
     elif analysis_mode == "nondiff":
-        log_banner("Running Non-Differentiable Analysis")
+        logger.info(log_banner("Running Non-Differentiable Analysis"))
         nondiff_analysis = NonDiffAnalysis(config, processed_datasets)
         nondiff_analysis.run_analysis_chain()
     elif analysis_mode == "diff":
-        log_banner("Running Differentiable Analysis")
+        logger.info(log_banner("Running Differentiable Analysis"))
         diff_analysis = DifferentiableAnalysis(config, processed_datasets)
         diff_analysis.run_analysis_optimisation()
     else:  # "both"
-        log_banner("Running both Non-Differentiable and Differentiable Analysis")
+        logger.info(log_banner("Running both Non-Differentiable and Differentiable Analysis"))
         # Non-differentiable analysis
         logger.info("Running Non-Differentiable Analysis")
         nondiff_analysis = NonDiffAnalysis(config, processed_datasets)
