@@ -3,10 +3,7 @@ from __future__ import annotations
 # =============================================================================
 # Standard Library Imports
 # =============================================================================
-import glob
-import hashlib
 import logging
-import os
 import pickle
 import warnings
 from collections import defaultdict
@@ -23,7 +20,6 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 import optax
-import uproot
 import vector
 from coffea.analysis_tools import PackedSelection
 from coffea.nanoevents import NanoAODSchema
@@ -37,7 +33,7 @@ from analysis.base import Analysis
 from user.cuts import lumi_mask
 #from utils.jax_stats import build_channel_data_scalar, compute_discovery_pvalue
 from utils.evm_stats import fit_params, build_channel_data_scalar, compute_discovery_pvalue
-from utils.logging import BLUE, GREEN, RED, RESET, log_banner, get_console
+from utils.logging import log_banner, get_console
 from rich.table import Table
 from rich.text import Text
 from utils.mva import JAXNetwork, TFNetwork
@@ -48,7 +44,7 @@ from utils.plot import (
     plot_parameters_over_iterations,
     plot_pvalue_vs_parameters,
 )
-from utils.tools import nested_defaultdict_to_dict, recursive_to_backend
+from utils.tools import nested_defaultdict_to_dict, recursive_to_backend, get_function_arguments
 
 
 # =============================================================================
@@ -1022,7 +1018,7 @@ class DifferentiableAnalysis(Analysis):
                 return object_copies, events, ak.ones_like(events, dtype=bool)
 
             # Extract arguments used by selection function
-            sel_args = self._get_function_arguments(
+            sel_args = get_function_arguments(
                 channel.selection.use,
                 object_copies,
                 function_name=channel.selection.function.__name__,
@@ -1260,7 +1256,7 @@ class DifferentiableAnalysis(Analysis):
             obj_copies = recursive_to_backend(obj_copies, "cpu")
 
             # Apply baseline selection mask
-            baseline_args = self._get_function_arguments(
+            baseline_args = get_function_arguments(
                 self.config.baseline_selection["use"],
                 obj_copies,
                 function_name=self.config.baseline_selection[
@@ -1460,7 +1456,7 @@ class DifferentiableAnalysis(Analysis):
             logger.debug(f"Channel {channel_name} has {nevents} events")
 
             # Compute differentiable selection weights using soft cut function
-            diff_args = self._get_function_arguments(
+            diff_args = get_function_arguments(
                 jax_config.soft_selection.use,
                 obj_copies_ch,
                 function_name=jax_config.soft_selection.function.__name__,
@@ -1510,7 +1506,7 @@ class DifferentiableAnalysis(Analysis):
                 )
 
                 # Evaluate observable function
-                obs_args = self._get_function_arguments(
+                obs_args = get_function_arguments(
                     observable.use,
                     obj_copies_ch,
                     function_name=observable.function.__name__,

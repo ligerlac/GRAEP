@@ -7,7 +7,6 @@ This module contains all skimming-related configuration including:
 - Skimming configuration parameters
 """
 
-import awkward as ak
 from coffea.analysis_tools import PackedSelection
 
 
@@ -91,18 +90,8 @@ def default_skim_selection(muons, puppimet, hlt):
 
     selection = PackedSelection()
 
-    # Muon selection (matching hardcoded behavior)
-    mu_sel = (
-        (muons.pt > 55)
-        & (abs(muons.eta) < 2.4)
-        & muons.tightId
-        & (muons.miniIsoId > 1)
-    )
-    muon_count = ak.sum(mu_sel, axis=1)
-
     # Individual cuts
     selection.add("trigger", hlt.TkMu50)
-    #selection.add("exactly_1_good_muon", muon_count == 1)
     selection.add("met_cut", puppimet.pt > 50)
 
     # Combined skimming selection
@@ -113,7 +102,7 @@ def default_skim_selection(muons, puppimet, hlt):
 
 skimming_config = {
     "selection_function": default_skim_selection,
-    "selection_use": [("Muon", None), ("PuppiMET", None), ("HLT", None)],
+    "selection_use": [("PuppiMET", None), ("HLT", None)],
     "output_dir": "skimmed_test/",
     "chunk_size": 100_000,
     "tree_name": "Events",

@@ -8,10 +8,8 @@ import awkward as ak
 import cabinetry
 import hist
 import numpy as np
-import uproot
 import vector
 from coffea.analysis_tools import PackedSelection
-from coffea.nanoevents import NanoAODSchema, NanoEventsFactory
 
 from analysis.base import Analysis
 from user.cuts import lumi_mask
@@ -20,6 +18,7 @@ from utils.output_files import (
     save_histograms_to_root,
 )
 from utils.stats import get_cabinetry_rebinning_router
+from utils.tools import get_function_arguments
 
 # -----------------------------
 # Register backends
@@ -32,10 +31,6 @@ vector.register_awkward()
 # -----------------------------
 logger = logging.getLogger("NonDiffAnalysis")
 logging.getLogger("jax._src.xla_bridge").setLevel(logging.ERROR)
-
-NanoAODSchema.warn_missing_crossrefs = False
-warnings.filterwarnings("ignore", category=FutureWarning, module="coffea.*")
-
 
 # -----------------------------
 # ZprimeAnalysis Class Definition
@@ -173,7 +168,7 @@ class NonDiffAnalysis(Analysis):
             logger.info(f"Applying selection for {channel_name} in {process}")
             mask = 1
             if (selection_funciton := channel.selection.function) is not None:
-                selection_args = self._get_function_arguments(
+                selection_args = get_function_arguments(
                     channel.selection.use,
                     object_copies,
                     function_name=channel.selection.function.__name__,
@@ -229,7 +224,7 @@ class NonDiffAnalysis(Analysis):
             for observable in channel.observables:
                 observable_name = observable.name
                 logger.info(f"Computing observable {observable_name}")
-                observable_args = self._get_function_arguments(
+                observable_args = get_function_arguments(
                     observable.use,
                     object_copies_channel,
                     function_name=observable.function.__name__,
@@ -279,7 +274,7 @@ class NonDiffAnalysis(Analysis):
         obj_copies = self.apply_object_masks(obj_copies)
 
         # Apply baseline selection
-        baseline_args = self._get_function_arguments(
+        baseline_args = get_function_arguments(
             self.config.baseline_selection.use,
             obj_copies,
             function_name=self.config.baseline_selection.function.__name__,

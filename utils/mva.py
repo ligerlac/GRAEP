@@ -17,7 +17,7 @@ from itertools import chain
 from sklearn.model_selection import train_test_split
 
 # Local application imports
-from analysis.base import Analysis
+from utils.tools import get_function_arguments
 
 # Initialize logger
 logger = logging.getLogger(__name__)
@@ -28,7 +28,7 @@ logger = logging.getLogger(__name__)
 # =============================================================================
 
 
-class BaseNetwork(ABC, Analysis):
+class BaseNetwork(ABC):
     """Abstract base class for MVA networks (e.g., JAX, TensorFlow).
 
     Handles common functionality including:
@@ -158,7 +158,7 @@ class BaseNetwork(ABC, Analysis):
         features_dict = {}
         for feature_cfg in feature_configs:
             # Extract input arguments from object collections
-            args = self._get_function_arguments(
+            args = get_function_arguments(
                 feature_cfg.use,
                 object_collections,
                 function_name=feature_cfg.function.__name__,
