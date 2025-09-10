@@ -43,10 +43,10 @@ def main():
     full_config = load_config_with_restricted_cli(ZprimeConfig, cli_args)
     config = Config(**full_config)  # Pydantic validation
     logger.info(f"Luminosity: {config.general.lumi}")
-    dataset_manager = ( ConfigurableDatasetManager(config.datasets)
-                       if config.datasets
-                       else None
-                    )
+    if not config.datasets:
+        logger.error("Missing 'datasets' configuration; required for metadata/skimming.")
+        sys.exit(1)
+    dataset_manager = ConfigurableDatasetManager(config.datasets)
 
     logger.info(log_banner("metadata and workitems extraction"))
     # Generate metadata and fileset from NanoAODs
