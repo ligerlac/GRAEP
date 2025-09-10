@@ -39,7 +39,6 @@ LIST_OF_VARS = [
 general_config = {
         "lumi": 16400,
         "weights_branch": "genWeight",
-        "max_files": -1,
         "analysis": "diff",
         "run_skimming": False,
         "run_histogramming": False,

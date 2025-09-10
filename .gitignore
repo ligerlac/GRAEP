@@ -12,8 +12,8 @@ docs/_build
 .pixi/*
 !.pixi/config.toml
 # others
-preproc_uproot/
-skimmed/
-test*
-output*
+/preproc_uproot/
+/skimmed/
+/test*/*
+/output*/*
 _*

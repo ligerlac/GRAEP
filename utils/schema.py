@@ -331,8 +331,7 @@ class DatasetManagerConfig(SubscriptableModel):
         Optional[int],
         Field(
             default=None,
-            description="Maximum number of files to process per dataset. "
-            "Use -1 for no limit.",
+            description="Maximum number of files to process per dataset."
         ),
     ]
 
