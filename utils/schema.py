@@ -108,7 +108,7 @@ class GoodObjectMasksBlockConfig(SubscriptableModel):
 # ------------------------
 class GeneralConfig(SubscriptableModel):
     lumi: Annotated[float, Field(description="Integrated luminosity in /pb")]
-    weights_branch: Annotated[
+    weight_branch: Annotated[
         str, Field(description="Branch name for event weight")
     ]
     lumifile: Annotated[

@@ -17,7 +17,7 @@ from coffea.analysis_tools import PackedSelection
 datasets_config = [
     {
         "name": "signal",
-        "directory": "datasets/signal/m2000_w20/",
+        "directory": "example/datasets/signal/m2000_w20/",
         "cross_section": 1.0,
         "file_pattern": "*.txt",
         "tree_name": "Events",
@@ -25,7 +25,7 @@ datasets_config = [
     },
     {
         "name": "ttbar_semilep",
-        "directory": "datasets/ttbar_semilep/",
+        "directory": "example/datasets/ttbar_semilep/",
         "cross_section": 831.76 * 0.438,  # 364.35
         "file_pattern": "*.txt",
         "tree_name": "Events",
@@ -33,7 +33,7 @@ datasets_config = [
     },
     {
         "name": "ttbar_had",
-        "directory": "datasets/ttbar_had/",
+        "directory": "example/datasets/ttbar_had/",
         "cross_section": 831.76 * 0.457,  # 380.11
         "file_pattern": "*.txt",
         "tree_name": "Events",
@@ -41,7 +41,7 @@ datasets_config = [
     },
     {
         "name": "ttbar_lep",
-        "directory": "datasets/ttbar_lep/",
+        "directory": "example/datasets/ttbar_lep/",
         "cross_section": 831.76 * 0.105,  # 87.33
         "file_pattern": "*.txt",
         "tree_name": "Events",
@@ -49,7 +49,7 @@ datasets_config = [
     },
     {
         "name": "wjets",
-        "directory": "datasets/wjets/",
+        "directory": "example/datasets/wjets/",
         "cross_section": 61526.7,
         "file_pattern": "*.txt",
         "tree_name": "Events",
@@ -57,7 +57,7 @@ datasets_config = [
     },
     {
         "name": "data",
-        "directory": "datasets/data/",
+        "directory": "example/datasets/data/",
         "cross_section": 1.0,
         "file_pattern": "*.txt",
         "tree_name": "Events",
@@ -71,7 +71,7 @@ datasets_config = [
 
 dataset_manager_config = {
     "datasets": datasets_config,
-    "metadata_output_dir": "outputs/test_metadata/skimmed/nanoaods_jsons/",
+    "metadata_output_dir": "example/outputs/nanoaods_jsons/",
     "max_files": None  # No limit by default
 }
 
@@ -103,7 +103,7 @@ def default_skim_selection(muons, puppimet, hlt):
 skimming_config = {
     "selection_function": default_skim_selection,
     "selection_use": [("PuppiMET", None), ("HLT", None)],
-    "output_dir": "skimmed_test/",
+    "output_dir": "example/outputs/skimmed/",
     "chunk_size": 100_000,
     "tree_name": "Events",
 }

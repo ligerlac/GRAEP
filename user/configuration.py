@@ -38,7 +38,7 @@ LIST_OF_VARS = [
 
 general_config = {
         "lumi": 16400,
-        "weights_branch": "genWeight",
+        "weight_branch": "genWeight",
         "analysis": "diff",
         "run_skimming": False,
         "run_histogramming": False,
@@ -48,7 +48,7 @@ general_config = {
         "run_mva_training": True,
         "run_metadata_generation": True,
         "read_from_cache": True,
-        "output_dir": "outputs/test_metadata/",
+        "output_dir": "example/outputs/",
         "processor": "uproot",
         "lumifile": "./corrections/Cert_271036-284044_13TeV_Legacy2016_"\
             "Collisions16_JSON.txt",
