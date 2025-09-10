@@ -96,7 +96,7 @@ class ChannelData(eqx.Module):
     - Bin edges are stored for visualization/rebinning purposes
     """
 
-    name: str = eqx.static_field()  # Treated as constant by JAX
+    name: str = eqx.field(static=True)  # Treated as constant by JAX
     observed_counts: jnp.ndarray
     templates: Dict[str, jnp.ndarray]
     bin_edges: jnp.ndarray
@@ -428,7 +428,7 @@ def compute_discovery_pvalue(
     channel_configurations: List[Any],
     parameters: Dict[str, float],
     signal_strength_test_value: float = 0.0,
-) -> Tuple[jnp.ndarray, Dict[str, jnp.ndarray]]:
+) -> Tuple[jnp.ndarray, Tuple[Dict[str, jnp.ndarray], Dict[str, jnp.ndarray]]]:
     """
     Calculate discovery p-value using profile likelihood ratio.
 
@@ -456,8 +456,10 @@ def compute_discovery_pvalue(
     -------
     p_value : jnp.ndarray
         Asymptotic p-value for discovery (1-tailed)
-    mle_parameters : Dict[str, jnp.ndarray]
-        Maximum Likelihood Estimates under null hypothesis
+
+    aux : Tuple[Dict[str, jnp.ndarray], Dict[str, jnp.ndarray]]
+        (MLE parameters, auxiliary dict) for downstream compatibility
+
 
     Notes
     -----
@@ -497,4 +499,4 @@ def compute_discovery_pvalue(
         return_mle_pars=True,  # Return fitted nuisance parameters
         test_stat="q0",  # Discovery test statistic
     )
-    return p_value, mle_parameters
+    return p_value, (mle_parameters, {})

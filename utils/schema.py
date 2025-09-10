@@ -108,7 +108,7 @@ class GoodObjectMasksBlockConfig(SubscriptableModel):
 # ------------------------
 class GeneralConfig(SubscriptableModel):
     lumi: Annotated[float, Field(description="Integrated luminosity in /pb")]
-    weights_branch: Annotated[
+    weight_branch: Annotated[
         str, Field(description="Branch name for event weight")
     ]
     lumifile: Annotated[
@@ -119,24 +119,13 @@ class GeneralConfig(SubscriptableModel):
     ]
     analysis: Annotated[
         Optional[str],
-        Field(
-            default="nondiff",
-            description="The analysis mode to run: 'diff' (differentiable) "
-            "'nondiff' or 'both'.",
-        ),
+        Field(default="nondiff",
+              description="The analysis mode to run: 'diff' (differentiable), 'nondiff', 'both', or 'skip' (skim-only mode)."),
     ]
-    max_files: Annotated[
-        Optional[int],
-        Field(
-            default=1,
-            description="Maximum number of files to process per dataset. "
-            "Use -1 for no limit.",
-        ),
-    ]
-    run_preprocessing: Annotated[
+    run_skimming: Annotated[
         bool,
         Field(
-            default=False,
+            default=True,
             description="If True, run the initial NanoAOD skimming and filtering step.",
         ),
     ]
@@ -178,6 +167,13 @@ class GeneralConfig(SubscriptableModel):
             description="If True, run the MVA model pre-training step.",
         ),
     ]
+    run_metadata_generation: Annotated[
+        bool,
+        Field(
+            default=True,
+            description="If True, run the JSON metadata generation step before constructing fileset.",
+        ),
+    ]
     read_from_cache: Annotated[
         bool,
         Field(
@@ -193,21 +189,6 @@ class GeneralConfig(SubscriptableModel):
             default="output/",
             description="Root directory for all analysis outputs "
             "(plots, models, etc.).",
-        ),
-    ]
-    preprocessor: Annotated[
-        Literal["uproot", "dak"],
-        Field(
-            default="uproot",
-            description="The engine to use for preprocessing: 'uproot' or "
-            "'dask-awkward'.",
-        ),
-    ]
-    preprocessed_dir: Annotated[
-        Optional[str],
-        Field(
-            default=None,
-            description="Directory containing pre-processed (skimmed) ROOT files.",
         ),
     ]
     cache_dir: Annotated[
@@ -237,9 +218,9 @@ class GeneralConfig(SubscriptableModel):
     @model_validator(mode="after")
     def validate_general(self) -> "GeneralConfig":
         """Validate the general configuration settings."""
-        if self.analysis not in ["diff", "nondiff", "both"]:
+        if self.analysis not in ["diff", "nondiff", "both", "skip"]:
             raise ValueError(
-                f"Invalid analysis mode '{self.analysis}'. Must be 'diff' or 'nondiff'."
+                f"Invalid analysis mode '{self.analysis}'. Must be 'diff', 'nondiff', 'both', or 'skip'."
             )
 
         return self
@@ -316,6 +297,76 @@ class JaxConfig(SubscriptableModel):
 
 
 # ------------------------
+# Dataset configuration
+# ------------------------
+class DatasetConfig(SubscriptableModel):
+    """Configuration for individual dataset paths, cross-sections, and metadata"""
+    name: Annotated[str, Field(description="Dataset name/identifier")]
+    directory: Annotated[str, Field(description="Directory containing dataset files")]
+    cross_section: Annotated[float, Field(description="Cross-section in picobarns")]
+    file_pattern: Annotated[str, Field(default="*.root", description="File pattern for dataset files")]
+    tree_name: Annotated[str, Field(default="Events", description="ROOT tree name")]
+    weight_branch: Annotated[str, Field(default="genWeight", description="Branch name for event weights")]
+    remote_access: Annotated[
+        Optional[dict[str, str]],
+        Field(default=None, description="Configuration for remote access (EOS, XRootD, etc.)")
+    ]
+
+class DatasetManagerConfig(SubscriptableModel):
+    """Top-level dataset management configuration"""
+    datasets: Annotated[List[DatasetConfig], Field(description="List of dataset configurations")]
+    metadata_output_dir: Annotated[
+        str,
+        Field(default="datasets/nanoaods_jsons/", description="Directory for metadata JSON files")
+    ]
+    max_files: Annotated[
+        Optional[int],
+        Field(
+            default=None,
+            description="Maximum number of files to process per dataset."
+        ),
+    ]
+
+# ------------------------
+# Skimming configuration
+# ------------------------
+class SkimmingConfig(SubscriptableModel):
+    """Configuration for workitem-based skimming selections and output"""
+
+    # Selection function - required for workitem-based skimming
+    selection_function: Annotated[
+        Callable,
+        Field(description="Selection function that returns a PackedSelection object")
+    ]
+
+    # Selection inputs - required to specify what the function needs
+    selection_use: Annotated[
+        List[ObjVar],
+        Field(description="List of (object, variable) tuples specifying inputs for the selection function")
+    ]
+
+    # Output directory configuration
+    output_dir: Annotated[
+        str,
+        Field(
+            description="Base directory for skimmed files. When run_skimming=True, this is where "
+                       "skimmed files will be written. When run_skimming=False, this is where "
+                       "existing skimmed files will be read from. Files follow the fixed structure: "
+                       "{output_dir}/{dataset}/file__{idx}/part_X.root where X is the chunk number."
+        )
+    ]
+
+    # File handling configuration
+    chunk_size: Annotated[
+        int,
+        Field(default=100_000, description="Number of events to process per chunk (used for configuration compatibility)")
+    ]
+    tree_name: Annotated[
+        str,
+        Field(default="Events", description="ROOT tree name for input and output files")
+    ]
+
+# ------------------------
 # Preprocessing configuration
 # ------------------------
 class PreprocessConfig(SubscriptableModel):
@@ -336,6 +387,12 @@ class PreprocessConfig(SubscriptableModel):
         Field(
             description="Additional branches to keep only for Monte Carlo samples."
         ),
+    ]
+
+    # Enhanced skimming configuration
+    skimming: Annotated[
+        Optional[SkimmingConfig],
+        Field(default=None, description="Configuration for skimming selections and output")
     ]
 
     @model_validator(mode="after")
@@ -1140,6 +1197,12 @@ class Config(SubscriptableModel):
         ),
     ]
 
+    # Enhanced dataset management
+    datasets: Annotated[
+        DatasetManagerConfig,
+        Field(description="Dataset management configuration (required)")
+    ]
+
     @model_validator(mode="after")
     def validate_config(self) -> "Config":
         # Check for duplicate channel names
@@ -1161,9 +1224,15 @@ class Config(SubscriptableModel):
                 "Duplicate systematic names found in configuration."
             )
 
-        if self.general.run_preprocessing and not self.preprocess:
+        if self.general.run_skimming and not self.preprocess:
             raise ValueError(
-                "Preprocessing is enabled but no preprocess configuration provided."
+                "Skimming is enabled but no preprocess configuration provided."
+            )
+
+        if self.general.run_skimming and (not self.preprocess.skimming):
+            raise ValueError(
+                "Skimming is enabled but no skimming configuration provided. "
+                "Please provide a SkimmingConfig with selection_function, selection_use, and output_dir."
             )
 
         if self.statistics is not None:
@@ -1220,15 +1289,16 @@ class Config(SubscriptableModel):
             seen_objects.add(object_mask.object)
 
         # check for duplicate mva parameter names
-        all_mva_params: List[str] = []
-        for net in self.mva:
-            for layer in net.layers:
-                all_mva_params += [layer.weights, layer.bias]
-        duplicates = {p for p in all_mva_params if all_mva_params.count(p) > 1}
-        if duplicates:
-            raise ValueError(
-                f"Duplicate NN parameter names across MVAs: {sorted(duplicates)}"
-            )
+        if self.mva is not None:
+            all_mva_params: List[str] = []
+            for net in self.mva:
+                for layer in net.layers:
+                    all_mva_params += [layer.weights, layer.bias]
+            duplicates = {p for p in all_mva_params if all_mva_params.count(p) > 1}
+            if duplicates:
+                raise ValueError(
+                    f"Duplicate NN parameter names across MVAs: {sorted(duplicates)}"
+                )
 
         return self
 

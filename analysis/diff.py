@@ -3,10 +3,7 @@ from __future__ import annotations
 # =============================================================================
 # Standard Library Imports
 # =============================================================================
-import glob
-import hashlib
 import logging
-import os
 import pickle
 import warnings
 from collections import defaultdict
@@ -23,10 +20,9 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 import optax
-import uproot
 import vector
 from coffea.analysis_tools import PackedSelection
-from coffea.nanoevents import NanoAODSchema, NanoEventsFactory
+from coffea.nanoevents import NanoAODSchema
 from jaxopt import OptaxSolver
 from tabulate import tabulate
 
@@ -35,9 +31,11 @@ from tabulate import tabulate
 # =============================================================================
 from analysis.base import Analysis
 from user.cuts import lumi_mask
-# from utils.jax_stats import build_channel_data_scalar, compute_discovery_pvalue
-from utils.evm_stats import build_channel_data_scalar, compute_discovery_pvalue, fit_params
-from utils.logging import BLUE, GREEN, RED, RESET, _banner
+#from utils.jax_stats import build_channel_data_scalar, compute_discovery_pvalue
+from utils.evm_stats import fit_params, build_channel_data_scalar, compute_discovery_pvalue
+from utils.logging import log_banner, get_console
+from rich.table import Table
+from rich.text import Text
 from utils.mva import JAXNetwork, TFNetwork
 from utils.plot import (
     create_cms_histogram,
@@ -46,8 +44,7 @@ from utils.plot import (
     plot_parameters_over_iterations,
     plot_pvalue_vs_parameters,
 )
-from utils.preproc import pre_process_dak, pre_process_uproot
-from utils.tools import nested_defaultdict_to_dict, recursive_to_backend
+from utils.tools import nested_defaultdict_to_dict, recursive_to_backend, get_function_arguments
 
 
 # =============================================================================
@@ -62,6 +59,7 @@ logging.getLogger("jax._src.xla_bridge").setLevel(logging.ERROR)
 NanoAODSchema.warn_missing_crossrefs = False
 warnings.filterwarnings("ignore", category=FutureWarning, module="coffea.*")
 
+jax.config.update("jax_enable_x64", True)
 
 # -----------------------------------------------------------------------------
 # Utility functions
@@ -102,17 +100,17 @@ def merge_histograms(
 
 
 def infer_processes_and_systematics(
-    fileset: dict[str, dict[str, Any]],
+    processed_datasets: dict[str, list[tuple[Any, dict[str, Any]]]],
     systematics_config: list[dict[str, Any]],
     corrections_config: list[dict[str, Any]],
 ) -> tuple[list[str], list[str]]:
     """
-    Extract all unique process and systematic names from the config and fileset.
+    Extract all unique process and systematic names from the config and processed datasets.
 
     Parameters
     ----------
-    fileset : dict
-        Dataset structure with 'metadata' dictionaries including process names.
+    processed_datasets : dict
+        Dictionary mapping dataset names to lists of (events, metadata) tuples.
     systematics_config : list
         Configuration entries for systematic variations.
     corrections_config : list
@@ -123,11 +121,12 @@ def infer_processes_and_systematics(
     tuple[list[str], list[str]]
         Sorted list of process names and systematic variation base names.
     """
-    # Pull out all process names from the fileset metadata
+    # Pull out all process names from the processed datasets metadata
     process_names = {
         metadata.get("process")
-        for dataset in fileset.values()
-        if (metadata := dataset.get("metadata")) and metadata.get("process")
+        for events_list in processed_datasets.values()
+        for events, metadata in events_list
+        if metadata.get("process")
     }
 
     # Extract systematic names from both systematics and corrections configs
@@ -235,23 +234,27 @@ def _log_parameter_update(
                 p_value_change_initial = 0.0
         p_value_row.append(f"{p_value_change_initial:+.2f}%")
 
-    # Colour green for improvement (decrease), red for worsening (increase)
+    # Get console for Rich output
+    console = get_console()
+
+    # Create Rich Table for p-values
+    p_value_table = Table(show_header=True, header_style="bold")
+    for header in p_value_headers:
+        p_value_table.add_column(header)
+
+    # Determine color for p-value row
     if new_p_value < old_p_value:
-        p_value_row_coloured = [
-            f"{GREEN}{item}{RESET}" for item in p_value_row
-        ]
+        # Green for improvement (decrease)
+        colored_row = [Text(item, style="green") for item in p_value_row]
     elif new_p_value > old_p_value:
-        p_value_row_coloured = [f"{RED}{item}{RESET}" for item in p_value_row]
+        # Red for worsening (increase)
+        colored_row = [Text(item, style="red") for item in p_value_row]
     else:
-        p_value_row_coloured = p_value_row
-    p_value_table = tabulate(
-        [p_value_row_coloured], headers=p_value_headers, tablefmt="grid"
-    )
+        colored_row = [Text(item, style="white") for item in p_value_row]
+
+    p_value_table.add_row(*colored_row)
 
     # --- Parameter Table ---
-    table_data = []
-    headers = ["Parameter", "Old Value", "New Value", "% Change"]
-
     # Create a map from MVA name to its config for easy lookup
     mva_config_map = {mva.name: mva for mva in mva_configs or []}
 
@@ -263,6 +266,15 @@ def _log_parameter_update(
         if initial_params
         else {}
     )
+
+    # Create Rich Table for parameters
+    param_headers = ["Parameter", "Old Value", "New Value", "% Change"]
+    if initial_params:
+        param_headers.append("% Change from Initial")
+
+    param_table = Table(show_header=True, header_style="bold")
+    for header in param_headers:
+        param_table.add_column(header)
 
     for name, old_val in sorted(all_old_params.items()):
         new_val = all_new_params[name]
@@ -307,8 +319,8 @@ def _log_parameter_update(
         else:
             percent_change = float("inf") if new_param != 0 else 0.0
 
-        # Format for table
-        row = [
+        # Create row data
+        row_data = [
             name_display,
             f"{old_param:.4f}",
             f"{new_param:.4f}",
@@ -316,8 +328,7 @@ def _log_parameter_update(
         ]
 
         # Calculate percentage change from initial
-        if initial_param is None:
-            headers.append("% Change from Initial")
+        if initial_params:
             if initial_param != 0:
                 percent_change_from_initial = (
                     (new_param - initial_param) / initial_param
@@ -326,15 +337,17 @@ def _log_parameter_update(
                 percent_change_from_initial = (
                     float("inf") if new_param != 0 else 0.0
                 )
+            row_data.append(f"{percent_change_from_initial:+.2f}%")
 
-            row.append(f"{percent_change_from_initial:+.2f}%")
-
-        # Colour the row blue if the parameter value has changed
+        # Color the row green if the parameter value has changed, otherwise white
         if not np.allclose(old_param, new_param, atol=1e-6, rtol=1e-5):
-            row = [f"{BLUE}{item}{RESET}" for item in row]
+            colored_row = [Text(item, style="green") for item in row_data]
+        else:
+            colored_row = [Text(item, style="white") for item in row_data]
 
-        table_data.append(row)
+        param_table.add_row(*colored_row)
 
+    # Format header
     if isinstance(step, int):
         header = f"STEP {step:3d}"
     else:
@@ -343,12 +356,18 @@ def _log_parameter_update(
         else:
             header = ""
 
-    if not table_data:
-        logger.info(f"\n{header}\n{p_value_table}\n(No parameters to log)")
-        return
+    # Print using Rich console directly
+    if header:
+        console.print(f"\n{header}")
 
-    table_str = tabulate(table_data, headers=headers, tablefmt="grid")
-    logger.info(f"\n{header}\n{p_value_table}\n{table_str}\n")
+    console.print(p_value_table)
+
+    if param_table.row_count > 0:
+        console.print(param_table)
+    else:
+        console.print("(No parameters to log)")
+
+    console.print()  # Add newline
 
 
 # -----------------------------------------------------------------------------
@@ -696,16 +715,18 @@ class DifferentiableAnalysis(Analysis):
     - Training MVA models using JAX or TensorFlow frameworks.
     """
 
-    def __init__(self, config: dict[str, Any]) -> None:
+    def __init__(self, config: dict[str, Any], processed_datasets: Optional[Dict[str, List[Tuple[Any, Dict[str, Any]]]]] = None) -> None:
         """
-        Initialise the DifferentiableAnalysis with configuration.
+        Initialise the DifferentiableAnalysis with configuration and processed datasets.
 
         Parameters
         ----------
         config : dict
             Analysis configuration dictionary.
+        processed_datasets : Optional[Dict[str, List[Tuple[Any, Dict[str, Any]]]]], optional
+            Pre-processed datasets from skimming, by default None
         """
-        super().__init__(config)
+        super().__init__(config, processed_datasets)
 
         # Histogram storage:
         # histograms[variation][region][observable] = jnp.ndarray
@@ -748,10 +769,6 @@ class DifferentiableAnalysis(Analysis):
         )
         cache.mkdir(parents=True, exist_ok=True)
 
-        # Optional: directory to store preprocessed inputs for later reuse
-        preproc = self.config.general.get("preprocessed_dir")
-        if preproc:
-            Path(preproc).mkdir(parents=True, exist_ok=True)
 
         # Directory for trained MVA models
         mva = self.dirs["output"] / "mva_models"
@@ -773,7 +790,6 @@ class DifferentiableAnalysis(Analysis):
         self.dirs.update(
             {
                 "cache": cache,
-                "preproc": Path(preproc) if preproc else None,
                 "mva_models": mva,
                 "optimisation_plots": optimisation_plots,
                 "fit_plots": fit_plots,
@@ -781,23 +797,15 @@ class DifferentiableAnalysis(Analysis):
             }
         )
 
-    def _log_config_summary(self, fileset: dict[str, Any]) -> None:
+    def _log_config_summary(self) -> None:
         """Logs a structured summary of the key analysis configuration options."""
-        logger.info(_banner("Differentiable Analysis Configuration Summary"))
+        logger.info(log_banner("Differentiable Analysis Configuration Summary"))
 
         # --- General Settings ---
         general_cfg = self.config.general
         general_data = [
             ["Output Directory", general_cfg.output_dir],
-            [
-                "Max Files per Sample",
-                (
-                    "All"
-                    if general_cfg.max_files == -1
-                    else general_cfg.max_files
-                ),
-            ],
-            ["Run Preprocessing", general_cfg.run_preprocessing],
+            ["Run Skimming", general_cfg.run_skimming],
             ["Run MVA Pre-training", general_cfg.run_mva_training],
             ["Run Systematics", general_cfg.run_systematics],
             ["Run Plots Only", general_cfg.run_plots_only],
@@ -805,7 +813,8 @@ class DifferentiableAnalysis(Analysis):
         ]
         logger.info(
             "General Settings:\n"
-            + tabulate(general_data, tablefmt="grid", stralign="left")
+            + tabulate(general_data, tablefmt="rounded_outline", stralign="left")
+            + "\n"
         )
 
         # --- Channels ---
@@ -819,28 +828,25 @@ class DifferentiableAnalysis(Analysis):
                 + tabulate(
                     channel_data,
                     headers=["Name", "Fit Observable"],
-                    tablefmt="grid",
+                    tablefmt="rounded_outline",
                 )
+                + "\n"
             )
 
         # --- Processes ---
-        processes = sorted(
-            list(
-                {
-                    content["metadata"]["process"]
-                    for content in fileset.values()
-                }
-            )
-        )
-        if self.config.general.processes:
-            processes = [
-                p for p in processes if p in self.config.general.processes
-            ]
-        processes_data = [[p] for p in processes]
-        logger.info(
-            "Processes Included:\n"
-            + tabulate(processes_data, headers=["Process"], tablefmt="grid")
-        )
+        if self.processed_datasets:
+            processes = sorted(list({
+                metadata["process"]
+                for events_list in self.processed_datasets.values()
+                for events, metadata in events_list
+            }))
+            if self.config.general.processes:
+                processes = [p for p in processes if p in self.config.general.processes]
+            processes_data = [[p] for p in processes]
+            logger.info("Processes Included:\n"
+                        + tabulate(processes_data, headers=["Process"], tablefmt="rounded_outline")
+                        + "\n"
+                        )
 
         # --- Systematics ---
         if self.config.general.run_systematics:
@@ -855,8 +861,8 @@ class DifferentiableAnalysis(Analysis):
                     + tabulate(
                         syst_data,
                         headers=["Systematic", "Type"],
-                        tablefmt="grid",
-                    )
+                        tablefmt="rounded_outline")
+                    + "\n"
                 )
 
         if not self.config.jax:
@@ -872,7 +878,8 @@ class DifferentiableAnalysis(Analysis):
         ]
         logger.info(
             "Optimisation Settings:\n"
-            + tabulate(jax_data, tablefmt="grid", stralign="left")
+            + tabulate(jax_data, tablefmt="rounded_outline", stralign="left")
+            + "\n"
         )
 
         # --- Optimisable Parameters ---
@@ -888,7 +895,8 @@ class DifferentiableAnalysis(Analysis):
             if params_data:
                 logger.info(
                     "Initial Optimisable Parameters:\n"
-                    + tabulate(params_data, headers=headers, tablefmt="grid")
+                    + tabulate(params_data, headers=headers, tablefmt="rounded_outline")
+                    + "\n"
                 )
 
         # --- Learning Rates ---
@@ -901,8 +909,9 @@ class DifferentiableAnalysis(Analysis):
             + tabulate(
                 lr_data,
                 headers=["Parameter", "Learning Rate"],
-                tablefmt="grid",
+                tablefmt="rounded_outline",
             )
+            + "\n"
         )
 
         # --- MVA Models ---
@@ -935,7 +944,8 @@ class DifferentiableAnalysis(Analysis):
                 )
             logger.info(
                 "MVA Models:\n"
-                + tabulate(mva_data, headers=headers, tablefmt="grid")
+                + tabulate(mva_data, headers=headers, tablefmt="rounded_outline")
+                + "\n"
             )
 
     # -------------------------------------------------------------------------
@@ -1008,7 +1018,7 @@ class DifferentiableAnalysis(Analysis):
                 return object_copies, events, ak.ones_like(events, dtype=bool)
 
             # Extract arguments used by selection function
-            sel_args = self._get_function_arguments(
+            sel_args = get_function_arguments(
                 channel.selection.use,
                 object_copies,
                 function_name=channel.selection.function.__name__,
@@ -1050,9 +1060,8 @@ class DifferentiableAnalysis(Analysis):
         for channel in self.channels:
 
             channel_name = channel.name
-
             if not channel.use_in_diff:
-                logger.warning(
+                logger.debug(
                     f"Skipping channel {channel_name} in diff analysis"
                 )
                 continue
@@ -1061,7 +1070,7 @@ class DifferentiableAnalysis(Analysis):
             if (
                 req := self.config.general.channels
             ) and channel_name not in req:
-                logger.warning(
+                logger.debug(
                     f"Skipping channel {channel_name} (not in requested channels)"
                 )
                 continue
@@ -1077,7 +1086,7 @@ class DifferentiableAnalysis(Analysis):
             # Count number of events passing selection
             n_events = ak.sum(mask)
             if n_events == 0:
-                logger.warning(
+                logger.debug(
                     f"No events left in {channel_name} for {process} after selection"
                 )
                 continue
@@ -1247,7 +1256,7 @@ class DifferentiableAnalysis(Analysis):
             obj_copies = recursive_to_backend(obj_copies, "cpu")
 
             # Apply baseline selection mask
-            baseline_args = self._get_function_arguments(
+            baseline_args = get_function_arguments(
                 self.config.baseline_selection["use"],
                 obj_copies,
                 function_name=self.config.baseline_selection[
@@ -1407,20 +1416,19 @@ class DifferentiableAnalysis(Analysis):
             return histograms
 
         for channel in self.channels:
+            channel_name = channel.name
             # Skip channels not participating in differentiable analysis
             if not channel.use_in_diff:
-                warning_logger(
-                    f"Skipping channel {channel.name} (use_in_diff=False)"
+                logger.debug(
+                    f"Skipping channel {channel_name}"
                 )
                 continue
-
-            channel_name = channel.name
 
             # Skip if channel is not listed in requested channels
             if (
                 req := self.config.general.channels
             ) and channel_name not in req:
-                warning_logger(
+                logger.debug(
                     f"Skipping channel {channel_name} (not in requested channels)"
                 )
                 continue
@@ -1448,7 +1456,7 @@ class DifferentiableAnalysis(Analysis):
             logger.debug(f"Channel {channel_name} has {nevents} events")
 
             # Compute differentiable selection weights using soft cut function
-            diff_args = self._get_function_arguments(
+            diff_args = get_function_arguments(
                 jax_config.soft_selection.use,
                 obj_copies_ch,
                 function_name=jax_config.soft_selection.function.__name__,
@@ -1460,9 +1468,8 @@ class DifferentiableAnalysis(Analysis):
 
             # Compute cross-section normalised event weights
             if process != "data":
-                weights = (events_ch.genWeight * xsec_weight) / abs(
-                    events_ch.genWeight
-                )
+                weights = (events_ch[self.config.general.weight_branch] * xsec_weight) / abs(
+                    events_ch[self.config.general.weight_branch])
                 logger.debug(f"MC weights: xsec_weight={xsec_weight:.4f}")
             else:
                 weights = ak.Array(np.ones(nevents))
@@ -1476,6 +1483,7 @@ class DifferentiableAnalysis(Analysis):
                 logger.debug(
                     f"Applied {event_syst.name} {direction} correction"
                 )
+
 
             weights = jnp.asarray(ak.to_jax(weights))
 
@@ -1493,11 +1501,11 @@ class DifferentiableAnalysis(Analysis):
                 info_logger(
                     f"Histogramming: {process} | {variation} | {channel_name} | "
                     f"{obs_name} | Events (Raw): {nevents:,} | "
-                    f"Events(Weighted): {ak.sum(weights):,.2f}"
+                    f"Events (Weighted): {jnp.sum(weights):,.2f}"
                 )
 
                 # Evaluate observable function
-                obs_args = self._get_function_arguments(
+                obs_args = get_function_arguments(
                     observable.use,
                     obj_copies_ch,
                     function_name=observable.function.__name__,
@@ -1719,10 +1727,9 @@ class DifferentiableAnalysis(Analysis):
         """
         info_logger = logger.info if not silent else logger.debug
         info_logger(
-            _banner(
-                "📊 Starting histogram collection and p-value calculation..."
-            )
-        )
+            log_banner(
+            "📊 Starting histogram collection and p-value calculation..."
+        ))
         histograms_by_process = defaultdict(dict)
 
         # -------------------------------------------------------------------------
@@ -1730,11 +1737,6 @@ class DifferentiableAnalysis(Analysis):
         # -------------------------------------------------------------------------
         for dataset_name, dataset_files in processed_data_events.items():
             process_name = dataset_name.split("___")[1]
-
-            info_logger(
-                f" ⏳ Processing dataset: {dataset_name} "
-                f"(process: {process_name}, files: {len(dataset_files)})"
-            )
 
             # Ensure process histogram container exists
             if process_name not in histograms_by_process:
@@ -1745,16 +1747,11 @@ class DifferentiableAnalysis(Analysis):
             # ---------------------------------------------------------------------
             # Loop over files in the dataset
             # ---------------------------------------------------------------------
-            info_logger(" 🔍 Collecting histograms for dataset...")
             for file_key, variations in dataset_files.items():
                 for variation_name, (
                     processed_data,
                     metadata,
                 ) in variations.items():
-                    logger.debug(
-                        f"  • Collecting histograms for file: {file_key} "
-                        f"({variation_name})"
-                    )
 
                     # Build histograms for this file and variation
                     file_histograms = self._collect_histograms(
@@ -1771,7 +1768,7 @@ class DifferentiableAnalysis(Analysis):
         # Compute statistical p-value from histograms
         # -------------------------------------------------------------------------
         info_logger(
-            " ✅ Histogram collection complete. Starting p-value calculation..."
+            "✅ Histogram collection complete. Starting p-value calculation..."
         )
         pvalue, aux = self._calculate_pvalue(
             histograms_by_process, params["fit"], silent=silent
@@ -1788,21 +1785,18 @@ class DifferentiableAnalysis(Analysis):
     def _prepare_data(
         self,
         params: dict[str, Any],
-        fileset: dict[str, Any],
         read_from_cache: bool = False,
         run_and_cache: bool = True,
         cache_dir: Optional[str] = "/tmp/gradients_analysis/",
         recreate_fit_params: bool = False,
     ) -> dict[str, dict[str, dict[str, Any]]]:
         """
-        Run full analysis on all datasets in fileset with caching support.
+        Run full analysis on processed datasets with caching support.
 
         Parameters
         ----------
         params : dict
             Analysis parameters.
-        fileset : dict
-            Dictionary mapping dataset names to file and metadata.
         read_from_cache : bool
             Read preprocessed events from cache.
         run_and_cache : bool
@@ -1820,21 +1814,30 @@ class DifferentiableAnalysis(Analysis):
         all_channel_names = {
             f"Channel: {c.name}" for c in config.channels if c.use_in_diff
         }
-        summary_data = []
 
-        logger.info(_banner("Preparing and Caching Data"))
+        summary_data = []
+        logger.info(log_banner("Processing skimmed data"))
 
         # Prepare dictionary to collect MVA training data
         mva_data: dict[str, dict[str, list[Tuple[dict, int]]]] = defaultdict(
             lambda: defaultdict(list)
         )
 
-        # Loop over datasets in the fileset
-        for dataset, content in fileset.items():
-            metadata = content["metadata"]
-            metadata["dataset"] = dataset
-            process_name = metadata["process"]
+        # Use processed datasets from skimming
+        if not self.processed_datasets:
+            raise ValueError("No processed datasets available for analysis")
 
+        # Loop over processed datasets
+        for dataset, events_list in self.processed_datasets.items():
+            # Get metadata from first event in the list
+            if not events_list:
+                continue
+            _, metadata = events_list[0]
+            process_name = metadata["process"]
+            logger.info(
+                f"Processing dataset: {dataset} (process: {process_name}, "
+                f"files: {len(events_list)})"
+            )
             # Skip datasets not explicitly requested in config
             if (req := config.general.processes) and process_name not in req:
                 logger.info(
@@ -1844,225 +1847,115 @@ class DifferentiableAnalysis(Analysis):
 
             dataset_stats = defaultdict(int)
 
-            # Loop over ROOT files associated with the dataset
-            for idx, (file_path, tree) in enumerate(content["files"].items()):
-                # Honour file limit if set in configuration
-                if (
-                    config.general.max_files != -1
-                    and idx >= config.general.max_files
-                ):
-                    logger.info(
-                        f"Reached max files limit ({config.general.max_files})"
+            # Loop over events in the processed dataset
+            for idx, (events, file_metadata) in enumerate(events_list):
+
+                # Count skimmed events
+                dataset_stats["Skimmed"] += len(events)
+
+                # Run preprocessing pipeline and store processed results
+                processed_data, stats = self._prepare_data_for_tracing(events, process_name)
+                all_events[f"{dataset}___{process_name}"][f"file__{idx}"][f"events_{idx}"] = (processed_data, file_metadata)
+
+                dataset_stats["Baseline (Analysis)"] += stats["baseline_analysis"]
+                dataset_stats["Baseline (MVA)"] += stats["baseline_mva"]
+                for ch, count in stats["channels"].items():
+                    ch_name = f"Channel: {ch}"
+                    dataset_stats[ch_name] += count
+
+                # ------------------------------------------------------
+                # If MVA training is enabled, collect data for MVA models
+                # ------------------------------------------------------
+                # Helper to extract class name and associated process names
+                def parse_class_entry(entry: Union[str, dict[str, list[str]]]) -> tuple[str, list[str]]:
+                    """
+                    Parse MVA class entry to extract class name and associated process names.
+
+                    Parameters
+                    ----------
+                    entry : Union[str, dict[str, list[str]]]
+                        MVA class entry, either a string (process name) or a dictionary
+                        mapping class name to list of process names.
+
+                    Returns
+                    -------
+                    tuple[str, list[str]]
+                        A tuple containing:
+                        - class_name: Name of the MVA class
+                        - process_names: List of process names associated with this class
+
+                    Raises
+                    ------
+                    ValueError
+                        If entry is neither a string nor a dictionary.
+                    """
+                    if isinstance(entry, str):
+                        return entry, [entry]
+                    if isinstance(entry, dict):
+                        return next(iter(entry.items()))
+                    raise ValueError(f"Invalid MVA class type: {type(entry)}. \
+                                     Allowed types are str or dict.")
+
+                # Helper to record MVA data
+                def record_mva_entry(
+                    mva_data: dict[str, dict[str, list[tuple[dict, int]]]],
+                    cfg_name: str,
+                    class_label: str,
+                    presel_ch: dict[str, Any],
+                    process_name: str
+                ) -> None:
+                    """
+                    Record MVA training data for a specific class and process.
+
+                    Parameters
+                    ----------
+                    mva_data : dict[str, dict[str, list[tuple[dict, int]]]]
+                        Nested dictionary storing MVA training data, structured as:
+                        mva_data[config_name][class_name] = [(objects_dict, event_count), ...]
+                    cfg_name : str
+                        Name of the MVA configuration.
+                    class_label : str
+                        Label for the MVA class (e.g., 'signal', 'background').
+                    presel_ch : dict[str, Any]
+                        Preselection channel data containing 'mva_objects' and 'mva_nevents'.
+                    process_name : str
+                        Name of the physics process being recorded.
+
+                    Returns
+                    -------
+                    None
+                        Modifies mva_data in place by appending new training data.
+                    """
+                    nevents = presel_ch["mva_nevents"]
+                    logger.debug(
+                        f"Adding {nevents} events from process '{process_name}' to MVA class '{class_label}'."
                     )
-                    break
-
-                # Determine output directory for preprocessed files
-                output_dir = (
-                    f"output/{dataset}/file__{idx}/"
-                    if not config.general.preprocessed_dir
-                    else f"{config.general.preprocessed_dir}/{dataset}/file__{idx}/"
-                )
-
-                # Preprocess ROOT files into skimmed format using uproot or dask
-                if config.general.run_preprocessing:
-                    if config.general.preprocessor == "uproot":
-                        pre_process_uproot(
-                            file_path,
-                            tree,
-                            output_dir,
-                            config,
-                            is_mc=(dataset != "data"),
-                        )
-                    elif config.general.preprocessor == "dask":
-                        pre_process_dak(
-                            file_path,
-                            tree,
-                            output_dir + f"/part{idx}.root",
-                            config,
-                            is_mc=(dataset != "data"),
-                        )
-
-                # Discover skimmed files and summarise retained events
-                skimmed_files = glob.glob(f"{output_dir}/part*.root")
-                skimmed_files = [f"{f}:{tree}" for f in skimmed_files]
-                remaining = sum(
-                    uproot.open(f).num_entries for f in skimmed_files
-                )
-                dataset_stats["Skimmed"] += remaining
-
-                # Loop over skimmed files for further processing and caching
-                for skimmed in skimmed_files:
-                    cache_key = hashlib.md5(skimmed.encode()).hexdigest()
-                    cache_file = os.path.join(
-                        cache_dir, f"{dataset}__{cache_key}.pkl"
+                    mva_data[cfg_name][class_label].append(
+                        (presel_ch["mva_objects"], nevents)
                     )
 
-                    # Handle caching: process and cache, read from cache, or skip
-                    if run_and_cache:
-                        logger.info(
-                            f"Processing {skimmed} and caching results"
-                        )
-                        events = NanoEventsFactory.from_root(
-                            skimmed, schemaclass=NanoAODSchema, delayed=False
-                        ).events()
-                        with open(cache_file, "wb") as f:
-                            cloudpickle.dump(events, f)
-                    elif read_from_cache:
-                        logger.info(f"Reading cached events for {skimmed}")
-                        if os.path.exists(cache_file):
-                            with open(cache_file, "rb") as f:
-                                events = cloudpickle.load(f)
-                        else:
-                            logger.warning(
-                                f"Cache file not found: {cache_file}"
-                            )
-                            logger.info(
-                                f"Processing {skimmed} and caching results"
-                            )
-                            events = NanoEventsFactory.from_root(
-                                skimmed,
-                                schemaclass=NanoAODSchema,
-                                delayed=False,
-                            ).events()
-                            with open(cache_file, "wb") as f:
-                                cloudpickle.dump(events, f)
-                    else:
-                        logger.info(
-                            f"Processing {skimmed} but *not* caching results"
-                        )
-                        events = NanoEventsFactory.from_root(
-                            skimmed, schemaclass=NanoAODSchema, delayed=False
-                        ).events()
+                # Collect training data for MVA, if enabled
+                if config.mva and config.general.run_mva_training:
+                    nominal = processed_data.get("nominal", {})
+                    presel_ch = nominal.get("__presel")
+                    if presel_ch:
+                        for mva_cfg in config.mva:
+                            seen = set()  # track classes to avoid duplicates
+                            # iterate training and plot classes in order
+                            for entry in chain(mva_cfg.classes, mva_cfg.plot_classes):
+                                class_name, proc_names = parse_class_entry(entry)
+                                # fallback default
+                                if not class_name or not proc_names:
+                                    class_name = process_name
+                                    proc_names = [process_name]
+                                # skip duplicates
+                                if class_name in seen:
+                                    continue
+                                seen.add(class_name)
+                                # record only if this process applies
+                                if process_name in proc_names:
+                                    record_mva_entry(mva_data, mva_cfg.name, class_name, presel_ch, process_name)
 
-                    # Run preprocessing pipeline and store processed results
-                    processed_data, stats = self._prepare_data_for_tracing(
-                        events, process_name
-                    )
-                    all_events[f"{dataset}___{process_name}"][f"file__{idx}"][
-                        skimmed
-                    ] = (processed_data, metadata)
-
-                    dataset_stats["Baseline (Analysis)"] += stats[
-                        "baseline_analysis"
-                    ]
-                    dataset_stats["Baseline (MVA)"] += stats["baseline_mva"]
-                    for ch, count in stats["channels"].items():
-                        ch_name = f"Channel: {ch}"
-                        dataset_stats[ch_name] += count
-
-                    # ------------------------------------------------------
-                    # If MVA training is enabled, collect data for MVA models
-                    # ------------------------------------------------------
-                    # Helper to extract class name and associated process names
-                    def parse_class_entry(
-                        entry: Union[str, dict[str, list[str]]],
-                    ) -> tuple[str, list[str]]:
-                        """
-                        Parse MVA class entry to extract class name and associated
-                        process names.
-
-                        Parameters
-                        ----------
-                        entry : Union[str, dict[str, list[str]]]
-                            MVA class entry, either a string (process name) or a
-                            dictionary mapping class name to list of process names.
-
-                        Returns
-                        -------
-                        tuple[str, list[str]]
-                            A tuple containing:
-                            - class_name: Name of the MVA class
-                            - process_names: List of process names associated with this
-                              class
-
-                        Raises
-                        ------
-                        ValueError
-                            If entry is neither a string nor a dictionary.
-                        """
-                        if isinstance(entry, str):
-                            return entry, [entry]
-                        if isinstance(entry, dict):
-                            return next(iter(entry.items()))
-                        raise ValueError(
-                            f"Invalid MVA class type: {type(entry)}. \
-                                         Allowed types are str or dict."
-                        )
-
-                    # Helper to record MVA data
-                    def record_mva_entry(
-                        mva_data: dict[str, dict[str, list[tuple[dict, int]]]],
-                        cfg_name: str,
-                        class_label: str,
-                        presel_ch: dict[str, Any],
-                        process_name: str,
-                    ) -> None:
-                        """
-                        Record MVA training data for a specific class and process.
-
-                        Parameters
-                        ----------
-                        mva_data : dict[str, dict[str, list[tuple[dict, int]]]]
-                            Nested dictionary storing MVA training data, structured as:
-                            mva_data[config_name][class_name]
-                            = [(objects_dict, event_count), ...]
-                        cfg_name : str
-                            Name of the MVA configuration.
-                        class_label : str
-                            Label for the MVA class (e.g., 'signal', 'background').
-                        presel_ch : dict[str, Any]
-                            Preselection channel data containing 'mva_objects' and
-                            'mva_nevents'.
-                        process_name : str
-                            Name of the physics process being recorded.
-
-                        Returns
-                        -------
-                        None
-                            Modifies mva_data in place by appending new training data.
-                        """
-                        nevents = presel_ch["mva_nevents"]
-                        logger.debug(
-                            f"Adding {nevents} events from process '{process_name}' "
-                            f"to MVA class '{class_label}'."
-                        )
-                        mva_data[cfg_name][class_label].append(
-                            (presel_ch["mva_objects"], nevents)
-                        )
-
-                    # Collect training data for MVA, if enabled
-                    if config.mva and config.general.run_mva_training:
-                        nominal = processed_data.get("nominal", {})
-                        presel_ch = nominal.get("__presel")
-                        if presel_ch:
-                            for mva_cfg in config.mva:
-                                seen = (
-                                    set()
-                                )  # track classes to avoid duplicates
-                                # iterate training and plot classes in order
-                                for entry in chain(
-                                    mva_cfg.classes, mva_cfg.plot_classes
-                                ):
-                                    class_name, proc_names = parse_class_entry(
-                                        entry
-                                    )
-                                    # fallback default
-                                    if not class_name or not proc_names:
-                                        class_name = process_name
-                                        proc_names = [process_name]
-                                    # skip duplicates
-                                    if class_name in seen:
-                                        continue
-                                    seen.add(class_name)
-                                    # record only if this process applies
-                                    if process_name in proc_names:
-                                        record_mva_entry(
-                                            mva_data,
-                                            mva_cfg.name,
-                                            class_name,
-                                            presel_ch,
-                                            process_name,
-                                        )
 
             row = {"Dataset": dataset, "Process": process_name}
             row.update(dataset_stats)
@@ -2085,7 +1978,7 @@ class DifferentiableAnalysis(Analysis):
                 + tabulate(
                     [formatted_row],
                     headers=headers,
-                    tablefmt="grid",
+                    tablefmt="rounded_outline",
                     stralign="right",
                 )
                 + "\n"
@@ -2110,9 +2003,9 @@ class DifferentiableAnalysis(Analysis):
             table_data.append(formatted_row)
 
         logger.info(
-            "📊 Data Preparation Summary\n"
+            "📊 Data Processing Summary\n"
             + tabulate(
-                table_data, headers=headers, tablefmt="grid", stralign="right"
+                table_data, headers=headers, tablefmt="rounded_outline", stralign="right"
             )
             + "\n"
         )
@@ -2130,7 +2023,7 @@ class DifferentiableAnalysis(Analysis):
             self.config.general.run_mva_training
             and (mva_cfg := self.config.mva) is not None
         ):
-            logger.info(_banner("Executing MVA Pre-training"))
+            logger.info(log_banner("Executing MVA Pre-training"))
             models, nets = self._run_mva_training(mva_data)
 
             # Save trained models and attach to processed data
@@ -2165,7 +2058,7 @@ class DifferentiableAnalysis(Analysis):
     # Cut Optimisation via Gradient Ascent
     # -------------------------------------------------------------------------
     def run_analysis_optimisation(
-        self, fileset: dict[str, dict[str, Any]]
+        self
     ) -> Tuple[dict[str, jnp.ndarray], jnp.ndarray]:
         """
         Perform gradient-based optimisation of analysis selection cuts and
@@ -2189,7 +2082,7 @@ class DifferentiableAnalysis(Analysis):
             - Final JAX scalar p-value
         """
         # Log a summary of the configuration being used for this run
-        self._log_config_summary(fileset)
+        self._log_config_summary()
         cache_dir = "/tmp/gradients_analysis/"
         # ---------------------------------------------------------------------
         # If not just plotting, begin gradient-based optimisation chain
@@ -2215,7 +2108,6 @@ class DifferentiableAnalysis(Analysis):
             processed_data, mva_models, mva_nets, mva_data = (
                 self._prepare_data(
                     all_parameters,
-                    fileset,
                     read_from_cache=read_from_cache,
                     run_and_cache=run_and_cache,
                     cache_dir=cache_dir,
@@ -2241,9 +2133,7 @@ class DifferentiableAnalysis(Analysis):
             # ---------------------------------------------------------------------
             # 3. Run initial traced analysis to compute KDE histograms
             # ---------------------------------------------------------------------
-            logger.info(
-                _banner("Running initial p-value computation (traced)")
-            )
+            logger.info(log_banner("Running initial p-value computation (traced)"))
             initial_pvalue, (mle_parameters, mle_parameters_uncertainties) = self._run_traced_analysis_chain(
                 all_parameters, processed_data
             )
@@ -2265,7 +2155,7 @@ class DifferentiableAnalysis(Analysis):
             # Collect relevant processes and systematics
             # ----------------------------------------------------------------------
             processes, systematics = infer_processes_and_systematics(
-                fileset, self.config.systematics, self.config.corrections
+                self.processed_datasets, self.config.systematics, self.config.corrections
             )
             logger.info(f"Processes: {processes}")
             logger.info(f"Systematics: {systematics}")
@@ -2273,9 +2163,7 @@ class DifferentiableAnalysis(Analysis):
             # ----------------------------------------------------------------------
             # Compute gradients to seed optimiser
             # ----------------------------------------------------------------------
-            logger.info(
-                _banner("Computing parameter gradients before optimisation")
-            )
+            logger.info(log_banner("Computing parameter gradients before optimisation"))
 
             (_, _), gradients = jax.value_and_grad(
                 self._run_traced_analysis_chain,
@@ -2286,7 +2174,7 @@ class DifferentiableAnalysis(Analysis):
             # ----------------------------------------------------------------------
             # Prepare for optimisation
             # ----------------------------------------------------------------------
-            logger.info(_banner("Preparing for parameter optimisation"))
+            logger.info(log_banner("Preparing for parameter optimisation"))
 
             # Define objective for optimiser (p-value to minimise)
             def objective(
@@ -2346,7 +2234,7 @@ class DifferentiableAnalysis(Analysis):
             )(all_parameters)
 
             # Set up optimisation loop
-            logger.info(_banner("Beginning parameter optimisation"))
+            logger.info(log_banner("Beginning parameter optimisation"))
             initial_params = all_parameters.copy()
             pval_history = []
             aux_history = {
@@ -2444,7 +2332,7 @@ class DifferentiableAnalysis(Analysis):
             )
 
             # Log final summary table comparing initial and final states
-            logger.info(_banner("Optimisation results"))
+            logger.info(log_banner("Optimisation results"))
             _log_parameter_update(
                 step="",
                 old_p_value=float(initial_pvalue),
@@ -2457,16 +2345,14 @@ class DifferentiableAnalysis(Analysis):
             # ----------------------------------------------------------------------
             # Prepare post-optimisation histograms
             # ----------------------------------------------------------------------
-            logger.info(
-                _banner(
-                    "Running analysis chain with optimised parameters (untraced)"
-                )
-            )
+            logger.info(log_banner(
+                "Running analysis chain with optimised parameters (untraced)"
+            ))
             # Run the traced analysis chain with final parameters
             _ = self._run_traced_analysis_chain(final_params, processed_data)
 
             logger.info(
-                _banner("Re-computing NN scores/process for MVA models")
+                log_banner("Re-computing NN scores/process for MVA models")
             )
 
             # Compute MVA scores with optimised parameters
@@ -2519,7 +2405,7 @@ class DifferentiableAnalysis(Analysis):
                 with open(path, "wb") as f:
                     pickle.dump(jax.tree.map(np.array, optimised_nn_params), f)
 
-        logger.info(_banner("Making plots and summaries"))
+        logger.info(log_banner("Making plots and summaries"))
         # ---------------------------------------------------------------------
         # 4. Reload results and generate summary plots
         # ---------------------------------------------------------------------
@@ -2539,7 +2425,6 @@ class DifferentiableAnalysis(Analysis):
         final_mva_scores = results["final_mva_scores"]
         initial_mva_scores = results["initial_mva_scores"]
 
-        logger.info(_banner("Generating parameter evolution plots"))
         # Generate optimisation progress plots
         if self.config.jax.explicit_optimisation:
             logger.info("Generating parameter history plots")
