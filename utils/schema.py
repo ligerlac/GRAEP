@@ -1208,8 +1208,8 @@ class Config(SubscriptableModel):
 
     # Enhanced dataset management
     datasets: Annotated[
-        Optional[DatasetManagerConfig],
-        Field(default=None, description="Dataset management configuration")
+        DatasetManagerConfig,
+        Field(description="Dataset management configuration (required)")
     ]
 
     @model_validator(mode="after")

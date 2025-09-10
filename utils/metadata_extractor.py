@@ -27,7 +27,7 @@ from coffea.processor.executor import WorkItem
 from rich.pretty import pretty_repr
 
 # Local application imports
-from utils.datasets import ConfigurableDatasetManager, create_default_dataset_config
+from utils.datasets import ConfigurableDatasetManager
 
 
 # Configure module-level logger
@@ -119,21 +119,16 @@ class FilesetBuilder:
         Manages dataset configurations, including paths and tree names.
     """
 
-    def __init__(self, dataset_manager: Optional[ConfigurableDatasetManager] = None):
+    def __init__(self, dataset_manager: ConfigurableDatasetManager):
         """
         Initializes the FilesetBuilder.
 
         Parameters
         ----------
-        dataset_manager : Optional[ConfigurableDatasetManager], optional
-            An existing dataset manager instance. If None, a default one is created.
+        dataset_manager : ConfigurableDatasetManager
+            A dataset manager instance (required).
         """
-        # Use provided dataset manager or create a default one
-        if dataset_manager is None:
-            dataset_config = create_default_dataset_config()
-            self.dataset_manager = ConfigurableDatasetManager(dataset_config)
-        else:
-            self.dataset_manager = dataset_manager
+        self.dataset_manager = dataset_manager
 
     def build_fileset(
         self, identifiers: Optional[Union[int, List[int]]] = None
@@ -321,22 +316,17 @@ class NanoAODMetadataGenerator:
 
     def __init__(
         self,
-        dataset_manager: Optional[ConfigurableDatasetManager] = None
+        dataset_manager: ConfigurableDatasetManager
     ):
         """
         Initializes the NanoAODMetadataGenerator.
 
         Parameters
         ----------
-        dataset_manager : Optional[ConfigurableDatasetManager], optional
-            An existing dataset manager instance. If None, a default one is created.
+        dataset_manager : ConfigurableDatasetManager
+            A dataset manager instance (required).
         """
-        # Use provided dataset manager or create default
-        if dataset_manager is None:
-            dataset_config = create_default_dataset_config()
-            self.dataset_manager = ConfigurableDatasetManager(dataset_config)
-        else:
-            self.dataset_manager = dataset_manager
+        self.dataset_manager = dataset_manager
 
         # The metadata_output_dir from the config is the canonical source.
         # This directory is used for all metadata reading and writing.
@@ -711,26 +701,3 @@ class NanoAODMetadataGenerator:
             json.dump(serializable, f, indent=4)
 
         logger.info(f"WorkItems metadata saved to {workitems_path}")
-
-# CLI entrypoint for standalone usage
-def main() -> None:
-    """
-    Command-line interface for the NanoAODMetadataGenerator.
-
-    This function sets up basic logging and instantiates the generator,
-    then runs the metadata generation process.
-    """
-    # Configure basic logging to INFO level
-    logging.basicConfig(level=logging.INFO)
-
-    # Instantiate the metadata generator.
-    generator = NanoAODMetadataGenerator()
-
-    # Run the metadata generation process.
-    generator.run(generate_metadata=True)
-
-
-
-
-if __name__ == "__main__":
-    main()

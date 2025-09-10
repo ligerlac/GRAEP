@@ -78,24 +78,6 @@ class ConfigurableDatasetManager:
             raise KeyError(f"Process '{process}' not found in dataset configuration")
         return Path(self.datasets[process].directory)
 
-    def get_file_pattern(self, process: str) -> str:
-        """
-        Get file pattern from config (typically '*.txt' for listing files).
-
-        Parameters
-        ----------
-        process : str
-            Process name
-
-        Returns
-        -------
-        str
-            File pattern for listing files
-        """
-        if process not in self.datasets:
-            raise KeyError(f"Process '{process}' not found in dataset configuration")
-        return self.datasets[process].file_pattern
-
     def get_tree_name(self, process: str) -> str:
         """
         Get ROOT tree name from config.
@@ -113,42 +95,6 @@ class ConfigurableDatasetManager:
         if process not in self.datasets:
             raise KeyError(f"Process '{process}' not found in dataset configuration")
         return self.datasets[process].tree_name
-
-    def get_weight_branch(self, process: str) -> str:
-        """
-        Get weight branch name from config.
-
-        Parameters
-        ----------
-        process : str
-            Process name
-
-        Returns
-        -------
-        str
-            Weight branch name
-        """
-        if process not in self.datasets:
-            raise KeyError(f"Process '{process}' not found in dataset configuration")
-        return self.datasets[process].weight_branch
-
-    def get_remote_access_config(self, process: str) -> Optional[Dict[str, str]]:
-        """
-        Get remote access configuration (EOS, XRootD, etc.).
-
-        Parameters
-        ----------
-        process : str
-            Process name
-
-        Returns
-        -------
-        dict or None
-            Remote access configuration or None if not configured
-        """
-        if process not in self.datasets:
-            raise KeyError(f"Process '{process}' not found in dataset configuration")
-        return self.datasets[process].remote_access
 
     def get_cross_section_map(self) -> Dict[str, float]:
         """
@@ -202,73 +148,3 @@ class ConfigurableDatasetManager:
             True if process is configured, False otherwise
         """
         return process in self.datasets
-
-
-def create_default_dataset_config() -> DatasetManagerConfig:
-    """
-    Create a default dataset configuration that matches current hardcoded values.
-
-    This provides backward compatibility and a starting point for configuration.
-    The directories contain .txt files with lists of EOS paths to actual ROOT files.
-
-    Returns
-    -------
-    DatasetManagerConfig
-        Default dataset configuration
-    """
-    datasets = [
-        DatasetConfig(
-            name="signal",
-            directory="datasets/signal/",
-            cross_section=1.0,
-            file_pattern="*.txt",  # Text files containing EOS paths
-            tree_name="Events",
-            weight_branch="genWeight"
-        ),
-        DatasetConfig(
-            name="ttbar_semilep",
-            directory="datasets/ttbar_semilep/",
-            cross_section=831.76 * 0.438,  # 364.35
-            file_pattern="*.txt",
-            tree_name="Events",
-            weight_branch="genWeight"
-        ),
-        DatasetConfig(
-            name="ttbar_had",
-            directory="datasets/ttbar_had/",
-            cross_section=831.76 * 0.457,  # 380.11
-            file_pattern="*.txt",
-            tree_name="Events",
-            weight_branch="genWeight"
-        ),
-        DatasetConfig(
-            name="ttbar_lep",
-            directory="datasets/ttbar_lep/",
-            cross_section=831.76 * 0.105,  # 87.33
-            file_pattern="*.txt",
-            tree_name="Events",
-            weight_branch="genWeight"
-        ),
-        DatasetConfig(
-            name="wjets",
-            directory="datasets/wjets/",
-            cross_section=61526.7,
-            file_pattern="*.txt",
-            tree_name="Events",
-            weight_branch="genWeight"
-        ),
-        DatasetConfig(
-            name="data",
-            directory="datasets/data/",
-            cross_section=1.0,
-            file_pattern="*.txt",
-            tree_name="Events",
-            weight_branch="genWeight"
-        )
-    ]
-
-    return DatasetManagerConfig(
-        datasets=datasets,
-        metadata_output_dir="datasets/nanoaods_jsons/",
-        max_files=-1  # No limit by default
-    )

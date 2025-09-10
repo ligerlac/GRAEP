@@ -1064,7 +1064,6 @@ class DifferentiableAnalysis(Analysis):
         for channel in self.channels:
 
             channel_name = channel.name
-            logger.debug(f"Processing channel {channel_name} for {process}")
             if not channel.use_in_diff:
                 logger.debug(
                     f"Skipping channel {channel_name} in diff analysis"
@@ -1424,19 +1423,16 @@ class DifferentiableAnalysis(Analysis):
             channel_name = channel.name
             # Skip channels not participating in differentiable analysis
             if not channel.use_in_diff:
-                warning_logger(
+                logger.debug(
                     f"Skipping channel {channel_name}"
                 )
                 continue
-
-            info_logger(f"Processing channel {channel_name}...")
-
 
             # Skip if channel is not listed in requested channels
             if (
                 req := self.config.general.channels
             ) and channel_name not in req:
-                warning_logger(
+                logger.debug(
                     f"Skipping channel {channel_name} (not in requested channels)"
                 )
                 continue
@@ -1747,11 +1743,6 @@ class DifferentiableAnalysis(Analysis):
         for dataset_name, dataset_files in processed_data_events.items():
             process_name = dataset_name.split("___")[1]
 
-            info_logger(
-                f" ⏳ Processing dataset: {dataset_name} "
-                f"(process: {process_name})"
-            )
-
             # Ensure process histogram container exists
             if process_name not in histograms_by_process:
                 histograms_by_process[process_name] = defaultdict(
@@ -1761,16 +1752,11 @@ class DifferentiableAnalysis(Analysis):
             # ---------------------------------------------------------------------
             # Loop over files in the dataset
             # ---------------------------------------------------------------------
-            info_logger(" 🔍 Collecting histograms for dataset...")
             for file_key, variations in dataset_files.items():
                 for variation_name, (
                     processed_data,
                     metadata,
                 ) in variations.items():
-                    logger.debug(
-                        f"  • Collecting histograms for file: {file_key} "
-                        f"({variation_name})"
-                    )
 
                     # Build histograms for this file and variation
                     file_histograms = self._collect_histograms(

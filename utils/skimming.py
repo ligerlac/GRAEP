@@ -510,8 +510,7 @@ class WorkitemSkimmingManager:
                 f"{dataset}: {count}" for dataset, count in dataset_counts.items()
             ])
             logger.info(
-                f"Found {len(output_files)} existing output files "
-                f"({dataset_info})"
+                f"Found existing skimmed files for {dataset_info}"
             )
         else:
             logger.info("No existing output files found")

@@ -475,15 +475,11 @@ Configuration for the data skimming step (part of `preprocess` block).
 
 | Parameter            | Type       | Default           | Description                                    |
 |----------------------|------------|-------------------|------------------------------------------------|
-| `nanoaod_selection`  | `dict`     | `None`           | NanoAOD mode selection configuration.         |
-| &nbsp;&nbsp;↳ `function` | `Callable` | *Required*   | Selection function to apply.                   |
-| &nbsp;&nbsp;↳ `use`      | `list[str]` | *Required*  | Input variables for the function.              |
-| `uproot_cut_string`  | `str`      | `None`           | Uproot mode cut string.                       |
-| `output_dir`         | `str`      | `None`           | Output directory (auto-set if None).         |
-| `output_pattern`     | `str`      | `"part{idx}.root"` | Output filename pattern.                    |
-| `chunk_size`         | `int`      | `100000`         | Events per processing chunk.                  |
-| `tree_name`          | `str`      | `"Events"`       | ROOT tree name.                               |
-| `weight_branch`      | `str`      | `"genWeight"`    | Event weight branch name.                     |
+| `selection_function` | `Callable` | *Required*        | Selection function that returns a PackedSelection object. |
+| `selection_use`      | `list[tuple]` | *Required*     | List of (object, variable) tuples specifying inputs for the selection function. |
+| `output_dir`         | `str`      | *Required*        | Base directory for skimmed files. Files follow structure: {output_dir}/{dataset}/file__{idx}/part_X.root |
+| `chunk_size`         | `int`      | `100000`         | Number of events to process per chunk (used for configuration compatibility). |
+| `tree_name`          | `str`      | `"Events"`       | ROOT tree name for input and output files.   |
 
 ---
 
