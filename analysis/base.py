@@ -60,7 +60,7 @@ def is_jagged(array_like: ak.Array) -> bool:
 class Analysis:
     """Base class for physics analysis implementations."""
 
-    def __init__(self, config: Dict[str, Any]) -> None:
+    def __init__(self, config: Dict[str, Any], processed_datasets: Optional[Dict[str, List[Tuple[Any, Dict[str, Any]]]]] = None) -> None:
         """
         Initialize analysis with configuration for systematics, corrections,
         and channels.
@@ -73,11 +73,14 @@ class Analysis:
             - 'corrections': Correction configurations
             - 'channels': Analysis channel definitions
             - 'general': General settings including output directory
+        processed_datasets : Optional[Dict[str, List[Tuple[Any, Dict[str, Any]]]]], optional
+            Pre-processed datasets from skimming, by default None
         """
         self.config = config
         self.channels = config.channels
         self.systematics = config.systematics
         self.corrections = config.corrections
+        self.processed_datasets = processed_datasets
         self.corrlib_evaluators = self._load_correctionlib()
         self.dirs = self._prepare_dirs()
 

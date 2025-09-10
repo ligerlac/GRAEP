@@ -48,7 +48,7 @@ def update(params: Params, values: PyTree[FScalar]) -> Params:
 def model_per_channel(params: Params, hists: Hists1D) -> Hists1D:
     # we put all modifiers into a list, so that we can compose them for application (scaling).
     # composing is important! it ensures that there's no order dependency in the application of the modifiers,
-    # and it allows us to apply multiple modifiers at once through batching (vmap) of the same modifier types, 
+    # and it allows us to apply multiple modifiers at once through batching (vmap) of the same modifier types,
     # which greatly improves performance and reduces compiletime.
     out = {}
 
@@ -133,14 +133,14 @@ def fit(
     )
     # NLL
     nll = total_loss(fitresult.value, static, channels)
-    
+
     # bestfit parameters
     bestfit_params = evm.tree.combine(fitresult.value, static)
 
     # bestfit parameter uncertainties
     # We use the Cramer-Rao bound to estimate uncertainties
     # use the bestfit parameters to compute the uncertainties, and split it by value of the parameters
-    # we explicitly not use `filter=evm.filter.is_not_frozen` here, because we want to compute uncertainties 
+    # we explicitly not use `filter=evm.filter.is_not_frozen` here, because we want to compute uncertainties
     # for all parameters, not just the "unfrozen" ones
     dynamic, static = evm.tree.partition(bestfit_params, filter=evm.filter.is_value)
     bestfit_params_uncertainties = evm.loss.cramer_rao_uncertainty(
@@ -365,7 +365,7 @@ def compute_discovery_pvalue(
     if not channels:
         logger.error("Discovery calculation aborted: no valid channels")
         return jnp.array(0.0), {}
-    
+
     # update the internal evm parameters with the provided values optimized by the analysis
     # the internal evm_params have much more information that is needed for the fit (like names, constraints, etc), but they are not supposed to be trainable
     params = update(evm_params, parameters)

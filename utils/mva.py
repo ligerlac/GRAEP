@@ -830,7 +830,7 @@ class JAXNetwork(BaseNetwork):
                         parameters, valid_x, valid_y
                     )
                     msg += f", val_acc={val_acc:.4f}"
-                print(msg)
+                logger.info(msg)
 
         self.parameters = parameters
         return self.parameters

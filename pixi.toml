@@ -11,7 +11,7 @@ version = "0.1.0"
 awkward = "==2.8.2"
 cabinetry = ">=0.6.0,<0.7"
 cloudpickle = ">=3.1.1,<4"
-coffea = ">=2024,<2025"
+coffea = ">=2025.7.3,<2026"
 correctionlib = ">=2.7.0,<3"
 dask-awkward = ">=2025.5.0,<2026"
 equinox = ">=0.13.0,<0.14"
@@ -36,6 +36,8 @@ python = ">=3.12.11,<3.13"
 xrootd = ">=5.8.1,<6"
 optimistix = ">=0.0.10"
 ipython = ">=9.4.0,<10"
+fsspec-xrootd = ">=0.4.0"
+rich = ">=14.1.0,<15"
 
 [pypi-dependencies]
 relaxed = { git = "https://github.com/pfackeldey/relaxed.git", branch = "fixes_for_zprime" }
