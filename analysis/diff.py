@@ -1506,7 +1506,7 @@ class DifferentiableAnalysis(Analysis):
                 info_logger(
                     f"Histogramming: {process} | {variation} | {channel_name} | "
                     f"{obs_name} | Events (Raw): {nevents:,} | "
-                    f"Events (Weighted): {ak.sum(weights):,.2f}"
+                    f"Events (Weighted): {jnp.sum(weights):,.2f}"
                 )
 
                 # Evaluate observable function

@@ -11,12 +11,12 @@ import hashlib
 import logging
 import os
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Set, Union
+from typing import Any, Dict, List, Optional
 from collections import defaultdict
 
 import awkward as ak
 import cloudpickle
-import dask.bag
+import dask
 import hist
 import uproot
 from coffea.nanoevents import NanoAODSchema, NanoEventsFactory

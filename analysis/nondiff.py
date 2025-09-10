@@ -3,7 +3,6 @@ import logging
 import os
 import warnings
 from collections import defaultdict
-from typing import Any, Literal, Optional
 from typing import Any, Literal, Optional, Dict, List, Tuple
 import awkward as ak
 import cabinetry
@@ -209,9 +208,9 @@ class NonDiffAnalysis(Analysis):
 
             if process != "data":
                 weights = (
-                    events[mask].genWeight
+                    events[mask][self.config.general.weight_branch]
                     * xsec_weight
-                    / abs(events[mask].genWeight)
+                    / abs(events[mask].self.config.general.weight_branch)
                 )
             else:
                 weights = np.ones(ak.sum(mask))
