@@ -1468,9 +1468,8 @@ class DifferentiableAnalysis(Analysis):
 
             # Compute cross-section normalised event weights
             if process != "data":
-                weights = (events_ch.genWeight * xsec_weight) / abs(
-                    events_ch.genWeight
-                )
+                weights = (events_ch[self.config.general.weight_branch] * xsec_weight) / abs(
+                    events_ch[self.config.general.weight_branch])
                 logger.debug(f"MC weights: xsec_weight={xsec_weight:.4f}")
             else:
                 weights = ak.Array(np.ones(nevents))

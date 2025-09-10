@@ -205,7 +205,7 @@ class NonDiffAnalysis(Analysis):
                 weights = (
                     events[mask][self.config.general.weight_branch]
                     * xsec_weight
-                    / abs(events[mask].self.config.general.weight_branch)
+                    / abs(events[mask][self.config.general.weight_branch])
                 )
             else:
                 weights = np.ones(ak.sum(mask))

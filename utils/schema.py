@@ -125,7 +125,7 @@ class GeneralConfig(SubscriptableModel):
     run_skimming: Annotated[
         bool,
         Field(
-            default=False,
+            default=True,
             description="If True, run the initial NanoAOD skimming and filtering step.",
         ),
     ]
@@ -189,14 +189,6 @@ class GeneralConfig(SubscriptableModel):
             default="output/",
             description="Root directory for all analysis outputs "
             "(plots, models, etc.).",
-        ),
-    ]
-    preprocessor: Annotated[
-        Literal["uproot", "dak"],
-        Field(
-            default="uproot",
-            description="The engine to use for preprocessing: 'uproot' or "
-            "'dask-awkward'.",
         ),
     ]
     cache_dir: Annotated[
