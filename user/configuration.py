@@ -53,6 +53,9 @@ general_config = {
         "lumifile": "./corrections/Cert_271036-284044_13TeV_Legacy2016_"\
             "Collisions16_JSON.txt",
         "cache_dir": "/tmp/gradients_analysis/",
+        # Optional: specify existing metadata/skimmed directories
+        # "metadata_dir": "path/to/existing/metadata/",
+        # "skimmed_dir": "path/to/existing/skimmed/",
 }
 
 # ==============================================================================
@@ -384,7 +387,6 @@ statistics_config = {"cabinetry_config": "cabinetry/cabinetry_config.yaml"}
 # ==============================================================================
 
 plotting_config = {
-    "output_dir": "plots/",
     "process_colors": {
         "ttbar_semilep": "#907AD6",
         "signal": "#DABFFF",

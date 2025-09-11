@@ -188,7 +188,7 @@ class GeneralConfig(SubscriptableModel):
         Field(
             default="output/",
             description="Root directory for all analysis outputs "
-            "(plots, models, etc.).",
+            "(plots, models, histograms, statistics, etc.).",
         ),
     ]
     cache_dir: Annotated[
@@ -196,6 +196,22 @@ class GeneralConfig(SubscriptableModel):
         Field(
             default="/tmp/gradients_analysis/",
             description="Cache directory for intermediate products of the analysis.",
+        ),
+    ]
+    metadata_dir: Annotated[
+        Optional[str],
+        Field(
+            default=None,
+            description="Directory containing existing metadata JSON files. "
+            "If None, uses output_dir/metadata/ and creates if needed.",
+        ),
+    ]
+    skimmed_dir: Annotated[
+        Optional[str],
+        Field(
+            default=None,
+            description="Directory containing existing skimmed ROOT files. "
+            "If None, uses output_dir/skimmed/ and creates if needed.",
         ),
     ]
     processes: Annotated[
@@ -315,10 +331,6 @@ class DatasetConfig(SubscriptableModel):
 class DatasetManagerConfig(SubscriptableModel):
     """Top-level dataset management configuration"""
     datasets: Annotated[List[DatasetConfig], Field(description="List of dataset configurations")]
-    metadata_output_dir: Annotated[
-        str,
-        Field(default="datasets/nanoaods_jsons/", description="Directory for metadata JSON files")
-    ]
     max_files: Annotated[
         Optional[int],
         Field(
@@ -345,16 +357,6 @@ class SkimmingConfig(SubscriptableModel):
         Field(description="List of (object, variable) tuples specifying inputs for the selection function")
     ]
 
-    # Output directory configuration
-    output_dir: Annotated[
-        str,
-        Field(
-            description="Base directory for skimmed files. When run_skimming=True, this is where "
-                       "skimmed files will be written. When run_skimming=False, this is where "
-                       "existing skimmed files will be read from. Files follow the fixed structure: "
-                       "{output_dir}/{dataset}/file__{idx}/part_X.root where X is the chunk number."
-        )
-    ]
 
     # File handling configuration
     chunk_size: Annotated[
@@ -771,12 +773,6 @@ class PlottingJaxConfig(SubscriptableModel):
 
 
 class PlottingConfig(SubscriptableModel):
-    output_dir: Annotated[
-        Optional[str],
-        Field(
-            default=None, description="Directory where plots will be written"
-        ),
-    ]
     process_colors: Annotated[
         Optional[dict[str, str]],
         Field(default=None, description="Hex colors for each process key"),
@@ -1232,7 +1228,7 @@ class Config(SubscriptableModel):
         if self.general.run_skimming and (not self.preprocess.skimming):
             raise ValueError(
                 "Skimming is enabled but no skimming configuration provided. "
-                "Please provide a SkimmingConfig with selection_function, selection_use, and output_dir."
+                "Please provide a SkimmingConfig with selection_function and selection_use."
             )
 
         if self.statistics is not None:

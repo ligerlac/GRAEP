@@ -64,9 +64,8 @@ class Analysis:
     def __init__(
         self,
         config: Dict[str, Any],
-        processed_datasets: Optional[
-            Dict[str, List[Tuple[Any, Dict[str, Any]]]]
-        ] = None,
+        processed_datasets: Dict[str, List[Tuple[Any, Dict[str, Any]]]],
+        output_manager,
     ) -> None:
         """
         Initialize analysis with configuration for systematics, corrections,
@@ -80,31 +79,18 @@ class Analysis:
             - 'corrections': Correction configurations
             - 'channels': Analysis channel definitions
             - 'general': General settings including output directory
-        processed_datasets : Optional[
-            Dict[str, List[Tuple[Any, Dict[str, Any]]]]
-        ], optional
-            Pre-processed datasets from skimming, by default None
+        processed_datasets : Dict[str, List[Tuple[Any, Dict[str, Any]]]]
+            Pre-processed datasets from skimming (required)
+        output_manager : OutputDirectoryManager
+            Centralized output directory manager (required)
         """
         self.config = config
         self.channels = config.channels
         self.systematics = config.systematics
         self.corrections = config.corrections
         self.processed_datasets = processed_datasets
+        self.output_manager = output_manager
         self.corrlib_evaluators = self._load_correctionlib()
-        self.dirs = self._prepare_dirs()
-
-    def _prepare_dirs(self) -> Dict[str, Path]:
-        """
-        Create output directories used by the analysis.
-
-        Returns
-        -------
-        Dict[str, Path]
-            Dictionary containing directory paths
-        """
-        output_dir = Path(self.config.general.output_dir)
-        output_dir.mkdir(parents=True, exist_ok=True)
-        return {"output": output_dir}
 
     def _load_correctionlib(self) -> Dict[str, CorrectionSet]:
         """

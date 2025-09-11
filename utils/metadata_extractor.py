@@ -316,7 +316,8 @@ class NanoAODMetadataGenerator:
 
     def __init__(
         self,
-        dataset_manager: ConfigurableDatasetManager
+        dataset_manager: ConfigurableDatasetManager,
+        output_manager
     ):
         """
         Initializes the NanoAODMetadataGenerator.
@@ -325,13 +326,14 @@ class NanoAODMetadataGenerator:
         ----------
         dataset_manager : ConfigurableDatasetManager
             A dataset manager instance (required).
+        output_manager : OutputDirectoryManager
+            Centralized output directory manager (required).
         """
         self.dataset_manager = dataset_manager
+        self.output_manager = output_manager
 
-        # The metadata_output_dir from the config is the canonical source.
-        # This directory is used for all metadata reading and writing.
-        self.output_directory = Path(self.dataset_manager.config.metadata_output_dir)
-        self.output_directory.mkdir(parents=True, exist_ok=True)
+        # Use output manager to get metadata directory
+        self.output_directory = self.output_manager.get_metadata_dir()
 
         # Initialize modularized components for fileset building and metadata extraction
         self.fileset_builder = FilesetBuilder(self.dataset_manager)

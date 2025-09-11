@@ -19,6 +19,7 @@ from utils.logging import setup_logging, log_banner
 from utils.schema import Config, load_config_with_restricted_cli
 from utils.metadata_extractor import NanoAODMetadataGenerator
 from utils.skimming import process_workitems_with_skimming
+from utils.output_manager import OutputDirectoryManager
 
 # -----------------------------
 # Logging Configuration
@@ -43,6 +44,16 @@ def main():
     full_config = load_config_with_restricted_cli(ZprimeConfig, cli_args)
     config = Config(**full_config)  # Pydantic validation
     logger.info(f"Luminosity: {config.general.lumi}")
+
+    # Create centralized output directory manager
+    output_manager = OutputDirectoryManager(
+        root_output_dir=config.general.output_dir,
+        cache_dir=config.general.cache_dir,
+        metadata_dir=config.general.metadata_dir,
+        skimmed_dir=config.general.skimmed_dir
+    )
+    logger.info(f"Output directory structure: {output_manager.list_structure()}")
+
     if not config.datasets:
         logger.error("Missing 'datasets' configuration; required for metadata/skimming.")
         sys.exit(1)
@@ -50,7 +61,7 @@ def main():
 
     logger.info(log_banner("metadata and workitems extraction"))
     # Generate metadata and fileset from NanoAODs
-    generator = NanoAODMetadataGenerator(dataset_manager=dataset_manager)
+    generator = NanoAODMetadataGenerator(dataset_manager=dataset_manager, output_manager=output_manager)
     generator.run(generate_metadata=config.general.run_metadata_generation)
     fileset = generator.fileset
     workitems = generator.workitems
@@ -62,7 +73,7 @@ def main():
     logger.info(f"Processing {len(workitems)} workitems")
 
     # Process workitems with dask-awkward
-    processed_datasets = process_workitems_with_skimming(workitems, config, fileset, generator.nanoaods_summary)
+    processed_datasets = process_workitems_with_skimming(workitems, config, output_manager, fileset, generator.nanoaods_summary)
 
 
     analysis_mode = config.general.analysis
@@ -73,21 +84,21 @@ def main():
         return
     elif analysis_mode == "nondiff":
         logger.info(log_banner("Running Non-Differentiable Analysis"))
-        nondiff_analysis = NonDiffAnalysis(config, processed_datasets)
+        nondiff_analysis = NonDiffAnalysis(config, processed_datasets, output_manager)
         nondiff_analysis.run_analysis_chain()
     elif analysis_mode == "diff":
         logger.info(log_banner("Running Differentiable Analysis"))
-        diff_analysis = DifferentiableAnalysis(config, processed_datasets)
+        diff_analysis = DifferentiableAnalysis(config, processed_datasets, output_manager)
         diff_analysis.run_analysis_optimisation()
     else:  # "both"
         logger.info(log_banner("Running both Non-Differentiable and Differentiable Analysis"))
         # Non-differentiable analysis
         logger.info("Running Non-Differentiable Analysis")
-        nondiff_analysis = NonDiffAnalysis(config, processed_datasets)
+        nondiff_analysis = NonDiffAnalysis(config, processed_datasets, output_manager)
         nondiff_analysis.run_analysis_chain()
         # Differentiable analysis
         logger.info("Running Differentiable Analysis")
-        diff_analysis = DifferentiableAnalysis(config, processed_datasets)
+        diff_analysis = DifferentiableAnalysis(config, processed_datasets, output_manager)
         diff_analysis.run_analysis_optimisation()
 
 

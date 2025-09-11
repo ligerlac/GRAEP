@@ -71,7 +71,6 @@ datasets_config = [
 
 dataset_manager_config = {
     "datasets": datasets_config,
-    "metadata_output_dir": "example/outputs/nanoaods_jsons/",
     "max_files": None  # No limit by default
 }
 
@@ -103,7 +102,6 @@ def default_skim_selection(muons, puppimet, hlt):
 skimming_config = {
     "selection_function": default_skim_selection,
     "selection_use": [("PuppiMET", None), ("HLT", None)],
-    "output_dir": "example/outputs/skimmed/",
     "chunk_size": 100_000,
     "tree_name": "Events",
 }

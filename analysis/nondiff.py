@@ -37,7 +37,7 @@ logging.getLogger("jax._src.xla_bridge").setLevel(logging.ERROR)
 # -----------------------------
 class NonDiffAnalysis(Analysis):
 
-    def __init__(self, config: dict[str, Any], processed_datasets: Optional[Dict[str, List[Tuple[Any, Dict[str, Any]]]]] = None) -> None:
+    def __init__(self, config: dict[str, Any], processed_datasets: Dict[str, List[Tuple[Any, Dict[str, Any]]]], output_manager) -> None:
         """
         Initialize ZprimeAnalysis with configuration and processed datasets.
 
@@ -46,28 +46,23 @@ class NonDiffAnalysis(Analysis):
         config : dict
             Configuration dictionary with 'systematics', 'corrections', 'channels',
             and 'general'.
-        processed_datasets : Optional[Dict[str, List[Tuple[Any, Dict[str, Any]]]]], optional
-            Pre-processed datasets from skimming, by default None
+        processed_datasets : Dict[str, List[Tuple[Any, Dict[str, Any]]]]
+            Pre-processed datasets from skimming (required)
+        output_manager : OutputDirectoryManager
+            Centralized output directory manager (required)
         """
-        super().__init__(config, processed_datasets)
+        super().__init__(config, processed_datasets, output_manager)
         self.nD_hists_per_region = self._init_histograms()
 
     def _prepare_dirs(self):
         # 1) create top-level output
         super()._prepare_dirs()
 
-        out = self.dirs["output"]
-
-        # 2) histograms lives under <output>/histograms
-        (out / "histograms").mkdir(parents=True, exist_ok=True)
-
-        # 3) cabinetry workspaces & stats
-        (out / "statistics").mkdir(parents=True, exist_ok=True)
-
+        # 2) Use output manager for directory creation
         self.dirs.update(
             {
-                "histograms": out / "histograms",
-                "statistics": out / "statistics",
+                "histograms": self.output_manager.get_histograms_dir(),
+                "statistics": self.output_manager.get_statistics_dir(),
             }
         )
 
@@ -357,9 +352,7 @@ class NonDiffAnalysis(Analysis):
         # build the workspace
         ws = cabinetry.workspace.build(cabinetry_config)
         # save the workspace
-        workspace_path = self.config.general.output_dir + "/statistics/"
-        os.makedirs(workspace_path, exist_ok=True)
-        workspace_path += "workspace.json"
+        workspace_path = self.output_manager.get_statistics_dir() / "workspace.json"
         cabinetry.workspace.save(ws, workspace_path)
         # build the model and data
         model, data = cabinetry.model_utils.model_and_data(ws)
@@ -387,7 +380,6 @@ class NonDiffAnalysis(Analysis):
 
         # Loop over processed datasets
         for dataset_name, events_list in self.processed_datasets.items():
-            os.makedirs(f"{config.general.output_dir}/{dataset_name}", exist_ok=True)
             logger.info("========================================")
             logger.info(f"🚀 Processing dataset: {dataset_name}")
 
@@ -408,11 +400,11 @@ class NonDiffAnalysis(Analysis):
         if config.general.run_histogramming:
             save_histograms_to_root(
                 self.nD_hists_per_region,
-                output_file=f"{config.general.output_dir}/histograms/histograms.root",
+                output_file=self.output_manager.get_histograms_dir() / "histograms.root",
             )
             save_histograms_to_pickle(
                 self.nD_hists_per_region,
-                output_file=f"{config.general.output_dir}/histograms/histograms.pkl",
+                output_file=self.output_manager.get_histograms_dir() / "histograms.pkl",
             )
         # Run statistics for non-differentiable analysis
         if config.general.run_statistics:
