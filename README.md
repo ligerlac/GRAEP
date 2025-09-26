@@ -1,4 +1,11 @@
-# Differentiable Z' → tt̄ Analysis Framework
+
+<div style="display: flex; align-items: stretch; gap: 15px;">
+  <img src="assets/logo.svg" alt="GRAEP logo" style="width: 200px; height: 130px; object-fit: cover; object-position: center;">
+  <div style="display: flex; flex-direction: column; justify-content: center; height: 130px; padding: 10px 0;">
+    <div style="font-size: 2.2em; font-weight: bold; line-height: 1.1; margin: 0;">Welcome to GRAEP - </div>
+    <div style="font-size: 2.2em; line-height: 1.1; margin: 5px 0 0 0;">a Differentiable HEP Analysis Framework</div>
+  </div>
+</div>
 
 This project is a framework for High-Energy Physics (HEP) analysis that leverages automatic differentiation to optimise analysis selections for maximal statistical significance. It is built on top of the scientific Python ecosystem, including `coffea`, `awkward-array`, and `uproot` for data handling, and `JAX` for gradient-based optimisation.
 
