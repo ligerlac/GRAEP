@@ -4,7 +4,7 @@ import os
 import warnings
 from collections import defaultdict
 from typing import Any, Literal, Optional
-
+from typing import Any, Literal, Optional, Dict, List, Tuple
 import awkward as ak
 import cabinetry
 import hist
@@ -20,7 +20,6 @@ from utils.output_files import (
     save_histograms_to_pickle,
     save_histograms_to_root,
 )
-from utils.preproc import pre_process_dak, pre_process_uproot
 from utils.stats import get_cabinetry_rebinning_router
 
 # -----------------------------
@@ -44,18 +43,19 @@ warnings.filterwarnings("ignore", category=FutureWarning, module="coffea.*")
 # -----------------------------
 class NonDiffAnalysis(Analysis):
 
-    def __init__(self, config: dict[str, Any]) -> None:
+    def __init__(self, config: dict[str, Any], processed_datasets: Optional[Dict[str, List[Tuple[Any, Dict[str, Any]]]]] = None) -> None:
         """
-        Initialize ZprimeAnalysis with configuration for systematics, corrections,
-        and channels.
+        Initialize ZprimeAnalysis with configuration and processed datasets.
 
         Parameters
         ----------
         config : dict
             Configuration dictionary with 'systematics', 'corrections', 'channels',
             and 'general'.
+        processed_datasets : Optional[Dict[str, List[Tuple[Any, Dict[str, Any]]]]], optional
+            Pre-processed datasets from skimming, by default None
         """
-        super().__init__(config)
+        super().__init__(config, processed_datasets)
         self.nD_hists_per_region = self._init_histograms()
 
     def _prepare_dirs(self):
@@ -382,77 +382,30 @@ class NonDiffAnalysis(Analysis):
 
         return data, results, prefit_prediction, postfit_prediction
 
-    def run_analysis_chain(self, fileset):
+    def run_analysis_chain(self):
+        """
+        Run the complete non-differentiable analysis chain using pre-processed datasets.
+        """
         config = self.config
-        for dataset, content in fileset.items():
-            metadata = content["metadata"]
-            metadata["dataset"] = dataset
-            process_name = metadata["process"]
-            if (req_processes := config.general.processes) is not None:
-                if process_name not in req_processes:
-                    continue
 
-            os.makedirs(
-                f"{config.general.output_dir}/{dataset}", exist_ok=True
-            )
+        if not self.processed_datasets:
+            raise ValueError("No processed datasets provided to analysis")
 
+        # Loop over processed datasets
+        for dataset_name, events_list in self.processed_datasets.items():
+            os.makedirs(f"{config.general.output_dir}/{dataset_name}", exist_ok=True)
             logger.info("========================================")
-            logger.info(f"🚀 Processing dataset: {dataset}")
+            logger.info(f"🚀 Processing dataset: {dataset_name}")
 
-            for idx, (file_path, tree) in enumerate(content["files"].items()):
-                output_dir = (
-                    f"output/{dataset}/file__{idx}/"
-                    if not config.general.preprocessed_dir
-                    else f"{config.general.preprocessed_dir}/{dataset}/file__{idx}/"
-                )
-                if (
-                    config.general.max_files != -1
-                    and idx >= config.general.max_files
-                ):
-                    continue
-                if config.general.run_preprocessing:
-                    logger.info(f"🔍 Preprocessing input file: {file_path}")
-                    logger.info(f"➡️  Writing to: {output_dir}")
-                    if config.general.preprocessor == "uproot":
-                        pre_process_uproot(
-                            file_path,
-                            tree,
-                            output_dir,
-                            config,
-                            is_mc=(dataset != "data"),
-                        )
-                    elif config.general.preprocessor == "dask":
-                        pre_process_dak(
-                            file_path,
-                            tree,
-                            output_dir + f"/part{idx}.root",
-                            config,
-                            is_mc=(dataset != "data"),
-                        )
+            # Process each (events, metadata) tuple
+            if config.general.run_histogramming:
+                for events, metadata in events_list:
+                    logger.info(f"📘 Processing events for {dataset_name}")
+                    logger.info("📈 Processing for non-differentiable analysis")
+                    self.process(events, metadata)
+                    logger.info("📈 Non-differentiable histogram-filling complete.")
 
-                skimmed_files = glob.glob(f"{output_dir}/part*.root")
-                skimmed_files = [f"{f}:{tree}" for f in skimmed_files]
-                remaining = sum(
-                    uproot.open(f).num_entries for f in skimmed_files
-                )
-                logger.info(
-                    f"✅ Events retained after filtering: {remaining:,}"
-                )
-                if config.general.run_histogramming:
-                    for skimmed in skimmed_files:
-                        logger.info(f"📘 Processing skimmed file: {skimmed}")
-                        logger.info(
-                            "📈 Processing for non-differentiable analysis"
-                        )
-                        events = NanoEventsFactory.from_root(
-                            skimmed, schemaclass=NanoAODSchema, delayed=False
-                        ).events()
-                        self.process(events, metadata)
-                        logger.info(
-                            "📈 Non-differentiable histogram-filling complete."
-                        )
-
-            logger.info(f"🏁 Finished dataset: {dataset}\n")
+            logger.info(f"🏁 Finished dataset: {dataset_name}\n")
 
         # Report end of processing
         logger.info("✅ All datasets processed.")

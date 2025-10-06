@@ -9,6 +9,7 @@ from user.cuts import (
 )
 from user.observables import get_mtt, get_mva_vars
 from user.systematics import jet_pt_resolution, jet_pt_scale
+from user.skim import dataset_manager_config, skimming_config
 
 
 # ==============================================================================
@@ -36,23 +37,23 @@ LIST_OF_VARS = [
 # ==============================================================================
 
 general_config = {
-    "lumi": 16400,
-    "weights_branch": "genWeight",
-    "max_files": -1,
-    "analysis": "diff",
-    "run_preprocessing": False,
-    "run_histogramming": False,
-    "run_statistics": False,
-    "run_systematics": False,
-    "run_plots_only": False,
-    "run_mva_training": True,
-    "read_from_cache": True,
-    "output_dir": "outputs/traced_zprime_with_jax_nn/",
-    "preprocessed_dir": "./preproc_uproot/z-prime-ttbar-data/",
-    "processor": "uproot",
-    "lumifile": "./corrections/Cert_271036-284044_13TeV_Legacy2016_"\
-        "Collisions16_JSON.txt",
-    "cache_dir": "/tmp/gradients_analysis/",
+        "lumi": 16400,
+        "weights_branch": "genWeight",
+        "max_files": -1,
+        "analysis": "diff",
+        "run_skimming": False,
+        "run_histogramming": False,
+        "run_statistics": False,
+        "run_systematics": False,
+        "run_plots_only": False,
+        "run_mva_training": True,
+        "run_metadata_generation": True,
+        "read_from_cache": True,
+        "output_dir": "outputs/test_metadata/",
+        "processor": "uproot",
+        "lumifile": "./corrections/Cert_271036-284044_13TeV_Legacy2016_"\
+            "Collisions16_JSON.txt",
+        "cache_dir": "/tmp/gradients_analysis/",
 }
 
 # ==============================================================================
@@ -60,20 +61,21 @@ general_config = {
 # ==============================================================================
 
 preprocess_config = {
-    "branches": {
-        "Muon": ["pt", "eta", "phi", "mass", "miniIsoId", "tightId", "charge"],
-        "FatJet": ["particleNet_TvsQCD", "pt", "eta", "phi", "mass"],
-        "Jet": ["btagDeepB", "jetId", "pt", "eta", "phi", "mass"],
-        "PuppiMET": ["pt", "phi"],
-        "HLT": ["TkMu50"],
-        "Pileup": ["nTrueInt"],
-        "event": ["genWeight", "run", "luminosityBlock"],
-    },
-    "ignore_missing": False,  # is this implemented?
-    "mc_branches": {
-        "event": ["genWeight", "luminosityBlock"],
-        "Pileup": ["nTrueInt"],
-    },
+        "branches": {
+            "Muon": ["pt", "eta", "phi", "mass", "miniIsoId", "tightId", "charge"],
+            "FatJet": ["particleNet_TvsQCD", "pt", "eta", "phi", "mass"],
+            "Jet": ["btagDeepB", "jetId", "pt", "eta", "phi", "mass"],
+            "PuppiMET": ["pt", "phi"],
+            "HLT": ["TkMu50"],
+            "Pileup": ["nTrueInt"],
+            "event": ["genWeight", "run", "luminosityBlock", "event"],
+        },
+        "ignore_missing": False,  # is this implemented?
+        "mc_branches": {
+            "event": ["genWeight"],
+            "Pileup": ["nTrueInt"],
+        },
+        "skimming": skimming_config,
 }
 
 # ==============================================================================
@@ -249,7 +251,7 @@ mva_config = [
     {
         "name": "wjets_vs_ttbar_nn",
         "use_in_diff": True,
-        "epochs": 1000,
+        "epochs": 500,
         "framework": "jax",  # keras/tf/... if TF need more info
         # (e.g. Model: Sequential layers: Dense)
         "validation_split": 0.2,
@@ -439,4 +441,5 @@ config = {
     "systematics": systematics_config,
     "statistics": statistics_config,
     "plotting": plotting_config,
+    "datasets": dataset_manager_config,
 }

@@ -80,22 +80,30 @@ pip install --upgrade pip
 pip install -r requirements.txt
 ```
 
-#### Data Pre-processing
+#### Data Skimming
 
-The analysis expects pre-processed data files. If you do not have them, you can generate them by running the pre-processing step. This will download the necessary data from the CERN Open Data Portal and skim it according to the configuration.
+The analysis expects skimmed data files. If you do not have them, you can generate them by running the skimming step. This will download the necessary data from the CERN Open Data Portal and skim it according to the configuration.
 
 ```bash
-# This command overrides the default config to run only the pre-processing step.
-# It may take a while to download and process the data.
-python run.py general.run_preprocessing=True general.run_mva_training=False general.analysis=nondiff general.run_histogramming=False general.run_statistics=False
+# This command runs only the skimming step to produce skimmed files
+python analysis.py general.run_skimming=True general.analysis=skip
+
+# Or run skimming and then analysis in one command
+python analysis.py general.run_skimming=True
 ```
+
+The skimming system provides three modes:
+
+1. **Skim-only mode**: `general.analysis=skip` - Only performs skimming, no analysis
+2. **Skim-and-analyse mode**: `general.run_skimming=True` - Skims data then runs analysis
+3. **Analysis-only mode**: `general.run_skimming=False` - Uses existing skimmed files for analysis
 
 ### 2. Run the Differentiable Analysis
 
-Once the pre-processed data is available, you can run the main analysis with a single command:
+Once the skimmed data is available, you can run the main analysis with a single command:
 
 ```bash
-python run.py
+python analysis.py
 ```
 
 ### 3. What is Happening?
@@ -129,9 +137,18 @@ The default configuration (`user/configuration.py`) is set up to perform a diffe
   - [1. The Configuration File (`user/configuration.py`)](#1-the-configuration-file-userconfigurationpy)
   - [2. Defining Analysis Logic](#2-defining-analysis-logic)
   - [3. Running the Analysis](#3-running-the-analysis)
+- [Config-Driven Skimming Framework](#config-driven-skimming-framework)
+  - [Dataset Configuration](#dataset-configuration)
+  - [Skimming Configuration](#skimming-configuration)
+  - [Selection Functions](#selection-functions)
+  - [Integration with Main Configuration](#integration-with-main-configuration)
+  - [Usage Examples](#usage-examples)
+  - [Advanced Features](#advanced-features)
 - [Configuration Reference](#configuration-reference)
   - [`general` Block](#general-block)
   - [`preprocess` Block](#preprocess-block)
+  - [`datasets` Block](#datasets-block)
+  - [`skimming` Block](#skimming-block)
   - [`jax` Block](#jax-block)
   - [`mva` Block](#mva-block)
   - [`channels` Block](#channels-block)
@@ -311,6 +328,91 @@ The allowed top-level keys for CLI overrides are:
 
 Attempting to override other keys (e.g., `jax.params`) will result in an error. To change these, you must edit the `user/configuration.py` file directly.
 
+## Skimming Integration
+
+The framework provides an integrated skimming system that handles data preprocessing before analysis.
+
+### Usage Modes
+
+The skimming system operates in three modes:
+
+1. **Skim-only**: `general.analysis=skip` - Only performs skimming, no analysis
+2. **Skim-and-analyse**: `general.run_skimming=True` - Skims data then runs analysis
+3. **Analysis-only**: `general.run_skimming=False` - Uses existing skimmed files
+
+### Dataset Configuration
+
+The dataset manager expects text files containing lists of ROOT file paths. Configure datasets in `user/skim.py` by pointing to these text files:
+
+```python
+# user/skim.py - See existing implementation for details
+dataset_manager_config = {
+    "datasets": [
+        {
+            "name": "signal",
+            "directory": "datasets/signal/",  # Directory containing .txt files with ROOT file lists
+            "cross_section": 1.0,
+        },
+        # ... other datasets
+    ]
+}
+```
+
+Each dataset directory should contain `.txt` files where each line is a path to a ROOT file.
+
+### Skimming Configuration
+
+Define your skimming selection in `user/cuts.py` (see `default_skim_selection` for reference) and configure it in `user/skim.py`:
+
+```python
+# user/skim.py - See existing implementation for details
+skimming_config = {
+    "nanoaod_selection": {
+        "function": default_skim_selection,
+        "use": [("Muon", None), ("Jet", None), ("PuppiMET", None), ("HLT", None)]
+    },
+    "uproot_cut_string": "HLT_TkMu50*(PuppiMET_pt>50)",
+    # ... other settings
+}
+```
+
+### Integration
+
+Connect the configurations in `user/configuration.py`:
+
+```python
+# user/configuration.py - See existing implementation for details
+from user.skim import dataset_manager_config, skimming_config
+
+config = {
+    "general": {
+        "run_skimming": False,  # Set to True to enable
+    },
+    "preprocess": {
+        "skimming": skimming_config
+    },
+    "datasets": dataset_manager_config,
+    # ... rest of configuration
+}
+```
+
+### Running
+
+```bash
+# Skim and analyze
+python analysis.py general.run_skimming=True
+
+# Skim only
+python analysis.py general.run_skimming=True general.analysis=skip
+
+# Analyze with existing skimmed files
+python analysis.py
+```
+
+The framework automatically manages file paths, creates output directories (`{output_dir}/skimmed/`), and handles the transition from skimming to analysis.
+
+---
+
 ## Configuration Reference
 
 The analysis is controlled by a central configuration dictionary, typically defined in `user/configuration.py`.
@@ -356,6 +458,36 @@ Settings for the initial data skimming and filtering step.
 | `branches`       | `dict`     | *Required*  | Mapping of collection names to branch lists.        |
 | `ignore_missing` | `bool`     | `False`     | Ignore missing branches if `True`.                  |
 | `mc_branches`    | `dict`     | *Required*  | Additional branches for MC samples.                 |
+| `skimming`       | `dict`     | `None`      | Skimming configuration (see `skimming` block below). |
+
+---
+
+### `datasets` Block
+
+List of dataset configurations defining data sample properties.
+
+| Parameter        | Type       | Default     | Description                                         |
+|------------------|------------|-------------|-----------------------------------------------------|
+| `name`          | `str`      | *Required*  | Unique dataset identifier.                          |
+| `directory`     | `str`      | *Required*  | Path to dataset files.                             |
+| `cross_section` | `float`    | *Required*  | Cross-section in picobarns (pb).                  |
+| `tree_name`     | `str`      | `"Events"`  | ROOT tree name.                                    |
+| `weight_branch` | `str`      | `"genWeight"` | Event weight branch name.                        |
+| `metadata`      | `dict`     | `{}`        | Additional dataset metadata.                       |
+
+---
+
+### `skimming` Block
+
+Configuration for the data skimming step (part of `preprocess` block).
+
+| Parameter            | Type       | Default           | Description                                    |
+|----------------------|------------|-------------------|------------------------------------------------|
+| `selection_function` | `Callable` | *Required*        | Selection function that returns a PackedSelection object. |
+| `selection_use`      | `list[tuple]` | *Required*     | List of (object, variable) tuples specifying inputs for the selection function. |
+| `output_dir`         | `str`      | *Required*        | Base directory for skimmed files. Files follow structure: {output_dir}/{dataset}/file__{idx}/part_X.root |
+| `chunk_size`         | `int`      | `100000`         | Number of events to process per chunk (used for configuration compatibility). |
+| `tree_name`          | `str`      | `"Events"`       | ROOT tree name for input and output files.   |
 
 ---
 
